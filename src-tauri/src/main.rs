@@ -16,7 +16,7 @@ use std::os::windows::process::CommandExt;
 
 use tauri::{
     menu::{Menu, MenuItem},
-    tray::TrayIconBuilder,
+    tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent},
     AppHandle, Manager, RunEvent, WebviewUrl, WebviewWindow, WebviewWindowBuilder, WindowEvent,
 };
 use tauri_plugin_opener::OpenerExt;
@@ -324,11 +324,15 @@ fn main() {
             let show = MenuItem::with_id(app, "show", "打开 GugleComote", true, None::<&str>)?;
             let quit = MenuItem::with_id(app, "quit", "退出 GugleComote", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show, &quit])?;
+            let last_left_click = Mutex::new(None);
             TrayIconBuilder::new()
                 .icon(app.default_window_icon().expect("app icon").clone())
                 .tooltip("GugleComote")
                 .menu(&menu)
-                .show_menu_on_left_click(true)
+                .show_menu_on_left_click(false)
+                .on_tray_icon_event(move |tray, event| {
+                    handle_tray_icon_event(tray.app_handle(), event, &last_left_click);
+                })
                 .on_menu_event(|app, event| match event.id.as_ref() {
                     "show" => show_main_window(app),
                     "quit" => app.exit(0),
@@ -418,6 +422,54 @@ fn show_main_window(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let _ = window.show();
         let _ = window.set_focus();
+    }
+}
+
+const TRAY_DOUBLE_CLICK_WINDOW: Duration = Duration::from_millis(500);
+
+fn consume_tray_left_click(last: &mut Option<Instant>, now: Instant) -> bool {
+    let is_double = last
+        .take()
+        .map(|previous| now.duration_since(previous) <= TRAY_DOUBLE_CLICK_WINDOW)
+        .unwrap_or(false);
+    if !is_double {
+        *last = Some(now);
+    }
+    is_double
+}
+
+fn handle_tray_icon_event(
+    app: &AppHandle,
+    event: TrayIconEvent,
+    last_left_click: &Mutex<Option<Instant>>,
+) {
+    match event {
+        // Windows emits a native DoubleClick event. Clearing the fallback
+        // state prevents the trailing mouse-up from opening the window twice.
+        TrayIconEvent::DoubleClick {
+            button: MouseButton::Left,
+            ..
+        } => {
+            if let Ok(mut last) = last_left_click.lock() {
+                *last = None;
+            }
+            show_main_window(app);
+        }
+        // macOS only emits Click events, so detect two left-button releases.
+        TrayIconEvent::Click {
+            button: MouseButton::Left,
+            button_state: MouseButtonState::Up,
+            ..
+        } => {
+            let is_double = last_left_click
+                .lock()
+                .map(|mut last| consume_tray_left_click(&mut last, Instant::now()))
+                .unwrap_or(false);
+            if is_double {
+                show_main_window(app);
+            }
+        }
+        _ => {}
     }
 }
 
@@ -1133,6 +1185,22 @@ mod tests {
             keep_daemon_alive_from_settings_body(r#"{ "keepDaemonAlive" : true }"#),
             true
         );
+    }
+
+    #[test]
+    fn tray_left_click_only_opens_after_a_double_click() {
+        let first_click = Instant::now();
+        let mut last_click = None;
+
+        assert!(!consume_tray_left_click(&mut last_click, first_click));
+        assert!(!consume_tray_left_click(
+            &mut last_click,
+            first_click + Duration::from_millis(600)
+        ));
+        assert!(consume_tray_left_click(
+            &mut last_click,
+            first_click + Duration::from_millis(700)
+        ));
     }
 
     #[cfg(unix)]
