@@ -7,7 +7,7 @@ test("desktop packaging targets the requested Tauri installer artifacts", async 
   const tauriConfig = JSON.parse(await readFile("src-tauri/tauri.conf.json", "utf8"));
   const tauriDevConfig = JSON.parse(await readFile("src-tauri/tauri.dev.conf.json", "utf8"));
 
-  assert.match(packageJson.version, /^\d+\.\d+\.\d+$/);
+  assert.match(packageJson.version, /^\d+\.\d+\.\d+(?:\+build\.\d+)?$/);
   assert.match(packageJson.scripts["dist:mac"], /--bundles app/);
   assert.match(packageJson.scripts["dist:mac"], /--target aarch64-apple-darwin/);
   assert.match(packageJson.scripts["dist:mac"], /create-mac-dmg\.mjs/);
