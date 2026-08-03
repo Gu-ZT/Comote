@@ -48,6 +48,9 @@ Telegram，让你在地铁里、客户那边、半夜的床上，都能继续指
 - **审批卡片** —— Codex 想跑 `rm -rf` 或者写文件时，IM 里弹卡片让你点批准 / 拒绝
 - **会话恢复** —— 关掉手机过几个小时回来，`/sessions` 继续之前的 thread
 - **多频道并行** —— 飞书、微信、钉钉、Telegram 可以同时绑，互不干扰
+- **桌面命令目录** ——「从手机使用」按行列出全部命令，悬浮查看具体用法，点击即可复制
+- **懒加载运行日志** —— 设置页先显示最新日志，滚动到底部自动载入更早记录
+- **预发布检查** ——「关于」页可勾选 `包含 pre-releases`，手动检查更新时也会查找预发布版
 - **可扩展** —— 加新 IM 就实现一个 channel adapter；加新 agent 后端就实现一个 connector
 
 > **关于官方 Codex 手机端**：OpenAI 自己出了 ChatGPT/Codex 的手机客户端，但它只服务 ChatGPT 订阅用户 —— 用 API key 在本机跑
@@ -101,8 +104,8 @@ GugleComote 通过 `codex app-server`（stdio JSON-RPC）与 Codex 通信，会�
 
 **桌面版**（带图形界面）—— 到 [Releases](https://github.com/Gu-ZT/Comote/releases) 下载最新版：
 
-- macOS：`GugleComote-x.y.z.dmg`
-- Windows：`GugleComote-x.y.z-setup.exe`
+- macOS：`GugleComote-x.y.z-arm64.dmg`
+- Windows：`GugleComote-Setup-x.y.z-x64.exe`
 
 **npm**（命令行版，跨平台，含 Linux）：
 
@@ -111,6 +114,8 @@ npm i -g comote   # 需要 Node 22+
 ```
 
 Linux / 无界面服务器请看[下面](#linux--无界面服务器headless-vps)的部署说明。也可以[从源码编译](#从源码构建)。
+
+稳定版使用 `vX.Y.Z` tag；主分支的每次普通 commit 也会触发桌面构建，并发布为带 `vX.Y.Z+build.<run>` 版本号的 pre-release。桌面版在「关于」页检查更新时，勾选「包含 pre-releases」即可查找这类构建。
 
 ### 2. 绑定一个 IM
 
@@ -222,16 +227,27 @@ GugleComote 的配置分三层，各管各的：
 
 命令速查：
 
-| 命令                       | 作用                       |
-|----------------------------|----------------------------|
-| `/projects`                | 列出 Codex 已知的所有项目  |
-| `/open <序号 \| 绝对路径>` | 进入某个项目               |
-| `/sessions`                | 列出该项目下最近的 thread  |
-| `/new <标题>`              | 新建一个 thread            |
-| `/status`                  | 当前绑定身份 / 项目 / 会话 |
-| `/approve <code>`          | 批准一个待审批的操作       |
-| `/deny <code>`             | 拒绝一个待审批的操作       |
-| 普通文本                   | 转给当前 thread 给 Codex   |
+| 命令                           | 作用                         |
+|--------------------------------|------------------------------|
+| `/help`                        | 显示全部命令                 |
+| `/status`                      | 显示连接、授权和执行状态     |
+| `/current`                     | 显示当前项目和对话           |
+| `/projects`                    | 列出可操作的项目             |
+| `/open <编号\|路径>`           | 选择项目                     |
+| `/sessions`                    | 列出当前项目的对话           |
+| `/use <编号\|id>`              | 切换到指定对话               |
+| `/switch <编号\|id>`           | `/use` 的别名                |
+| `/tail [n]`                    | 显示最近的本地对话消息       |
+| `/new <消息>`                  | 新建对话并发送任务           |
+| `/file <路径>`                 | 将项目内文件发送到聊天       |
+| `/automode <true\|false>`      | 切换自动审批模式             |
+| `/model`                       | 选择 Codex 模型和推理强度    |
+| `/cancel`                      | 取消任务或退出选择器         |
+| `/approve <编号>`              | 批准待处理的 Codex 请求      |
+| `/deny <编号>`                 | 拒绝待处理的 Codex 请求      |
+| 普通文本                       | 转发给当前对话中的 Codex     |
+
+Web 设置页的「从手机使用」会把这些命令按行显示：命令在左、说明在右。鼠标悬浮或键盘聚焦可查看完整用法，点击整行会复制命令。
 
 ## 排障与日志位置
 
@@ -246,6 +262,7 @@ comote logs          # daemon 内存事件日志（daemon 活着才有；--limit
 
 - **daemon 事件日志**：内存 ring buffer，`comote logs` 读取（也在 Web 设置页的"运行日志"面板）。daemon 挂了就没了 ——
   这时看下面的文件日志。
+- Web 设置页的「运行日志」先加载最新一页，滚动到页面底部会自动加载更早的日志，不需要手动分页。
 - **桌面 App 启动日志（文件，只在桌面 App 模式下产生）**：
     - macOS：`~/Library/Application Support/dev.comote.desktop/comote-launch.log`
     - Windows：`%APPDATA%\dev.comote.desktop\` 下的 `comote-launch.log`、`comote-node.stdout.log`、`comote-node.stderr.log`
@@ -353,14 +370,15 @@ npm test
 ```bash
 # macOS（必须在 macOS 上跑）
 npm run dist:mac
-# 产物：release/mac/GugleComote-x.y.z.dmg
+# 产物：release/GugleComote-x.y.z-arm64.dmg
 
 # Windows（必须在 Windows 上跑 —— Node sidecar + NSIS 都依赖 Windows 工具链）
 npm run dist:win
-# 产物：release/win/
+# 产物：release/GugleComote-Setup-x.y.z-x64.exe
 ```
 
-也可以让 GitHub Actions 帮忙（`windows-latest` runner）—— 参考 `.github/workflows/desktop-release.yml`。
+也可以让 GitHub Actions 帮忙（macOS / Windows matrix）—— 参考 `.github/workflows/desktop-release.yml`。CI 会先运行
+`node scripts/set-build-version.mjs --build <run-number>`，把 `+build.<run-number>` 同步写入 npm、Cargo 和 Tauri 版本后再打包。
 
 ## FAQ
 

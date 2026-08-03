@@ -58,6 +58,10 @@ By the time you're done and back at your desk, that tidy minutes table is alread
 - **Session resume** — put your phone away for a few hours, come back, and `/sessions` continues an earlier thread
 - **Multiple channels in parallel** — Feishu, WeChat, DingTalk, and Telegram can all be bound at once without stepping
   on each other
+- **Desktop command directory** — the "Use from phone" page lists every command by row, with hover usage details and
+  one-click copy
+- **Lazy runtime logs** — the settings page starts with the newest logs and loads older entries when you reach the bottom
+- **Pre-release checks** — the About page can include pre-releases when you manually check for updates
 - **Extensible** — add a new IM by implementing a channel adapter; add a new agent backend by implementing a connector
 
 > **About the official Codex mobile app**: OpenAI ships its own ChatGPT/Codex mobile clients, but they only serve
@@ -118,8 +122,8 @@ GugleComote talks to Codex through `codex app-server` (stdio JSON-RPC) and launc
 
 **Desktop app** (with GUI) — grab the latest build from [Releases](https://github.com/Gu-ZT/Comote/releases):
 
-- macOS: `GugleComote-x.y.z.dmg`
-- Windows: `GugleComote-x.y.z-setup.exe`
+- macOS: `GugleComote-x.y.z-arm64.dmg`
+- Windows: `GugleComote-Setup-x.y.z-x64.exe`
 
 **npm** (command-line, cross-platform, incl. Linux):
 
@@ -129,6 +133,9 @@ npm i -g comote   # needs Node 22+
 
 For Linux / headless servers, see the [deployment notes below](#linux--headless-vps). You can
 also [build from source](#build-from-source).
+
+Stable releases use `vX.Y.Z` tags. Every ordinary commit pushed to `main` also triggers a desktop build and a pre-release
+with a `vX.Y.Z+build.<run>` version. In the About page, enable "Include pre-releases" before checking for one of these builds.
 
 ### 2. Bind an IM
 
@@ -252,16 +259,28 @@ Common environment variables:
 
 Command cheat sheet:
 
-| Command                          | What it does                               |
-|----------------------------------|--------------------------------------------|
-| `/projects`                      | list all projects Codex knows about        |
-| `/open <index \| absolute path>` | enter a project                            |
-| `/sessions`                      | list recent threads in that project        |
-| `/new <title>`                   | start a new thread                         |
-| `/status`                        | current bound identity / project / session |
-| `/approve <code>`                | approve a pending operation                |
-| `/deny <code>`                   | deny a pending operation                   |
-| plain text                       | forwarded to the current thread for Codex  |
+| Command                    | What it does                                      |
+|---------------------------|---------------------------------------------------|
+| `/help`                   | show every command                                |
+| `/status`                 | show connection, authorization, and run status    |
+| `/current`                | show the current project and conversation         |
+| `/projects`               | list projects you can control                     |
+| `/open <index\|path>`     | select a project                                  |
+| `/sessions`               | list conversations in the current project         |
+| `/use <index\|id>`        | switch to a conversation                          |
+| `/switch <index\|id>`     | alias for `/use`                                  |
+| `/tail [n]`               | show recent local conversation messages            |
+| `/new <message>`          | create a conversation and send a task              |
+| `/file <path>`            | send a project file into the chat                 |
+| `/automode <true\|false>` | toggle automatic approvals                         |
+| `/model`                  | choose the Codex model and reasoning effort       |
+| `/cancel`                 | cancel a task or leave a picker                   |
+| `/approve <number>`       | approve a pending Codex request                   |
+| `/deny <number>`          | deny a pending Codex request                      |
+| plain text                | forward it to Codex in the current conversation   |
+
+The Web settings page's "Use from phone" view renders these as rows with the command on the left and its description on
+the right. Hover or keyboard-focus a row for the full usage tooltip; click a row to copy the command.
 
 ## Troubleshooting and log locations
 
@@ -276,6 +295,8 @@ Logs live in two places:
 
 - **Daemon event log**: an in-memory ring buffer, read with `comote logs` (also shown in the Web settings page's
   runtime-log panel). It's gone when the daemon dies — that's when you want the files below.
+- The Web settings page starts with the newest runtime-log page and automatically loads older entries when you scroll to
+  the bottom.
 - **Desktop-App launch logs (files, written only in desktop App mode)**:
     - macOS: `~/Library/Application Support/dev.comote.desktop/comote-launch.log`
     - Windows: `comote-launch.log`, `comote-node.stdout.log`, and `comote-node.stderr.log` under
@@ -391,14 +412,16 @@ Packaging:
 ```bash
 # macOS (must run on macOS)
 npm run dist:mac
-# output: release/mac/GugleComote-x.y.z.dmg
+# output: release/GugleComote-x.y.z-arm64.dmg
 
 # Windows (must run on Windows — Node sidecar + NSIS both need the Windows toolchain)
 npm run dist:win
-# output: release/win/
+# output: release/GugleComote-Setup-x.y.z-x64.exe
 ```
 
-You can also let GitHub Actions do it (the `windows-latest` runner) — see `.github/workflows/desktop-release.yml`.
+GitHub Actions can build both platforms too (see `.github/workflows/desktop-release.yml`). CI first runs
+`node scripts/set-build-version.mjs --build <run-number>` so the `+build.<run-number>` suffix is written into the npm,
+Cargo, and Tauri versions before packaging.
 
 ## FAQ
 
