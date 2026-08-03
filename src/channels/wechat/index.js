@@ -57,7 +57,7 @@ const wechatPlugin = {
     binding: "qr",
     capabilities: { cards: 0, media: 0, liveUpdates: 0, milestones: 1, typing: 1, fileButtons: 0, reactions: 0 },
     descriptionKey: "web.channel.wechat.desc",
-    icon: "微",
+    icon: "wechat",
     configFields: [
       { name: "enabled", type: "checkbox", labelKey: "web.channel.wechat.enabledLabel", default: true, hidden: true },
       { name: "accountId", type: "text", labelKey: "web.channel.wechat.accountLabel", default: "default", hidden: true },

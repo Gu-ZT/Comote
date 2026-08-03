@@ -76,16 +76,62 @@ export function detectInstallSource({
   return platform === "linux" ? "npm" : "desktop";
 }
 
+function parseVersion(value) {
+  const match = String(value ?? "0.0.0")
+    .trim()
+    .replace(/^v/i, "")
+    .match(/^(\d+)\.(\d+)\.(\d+)(?:-([0-9A-Za-z.-]+))?(?:\+([0-9A-Za-z.-]+))?/);
+  if (!match) {
+    return { major: 0, minor: 0, patch: 0, prerelease: [], build: [] };
+  }
+  return {
+    major: Number(match[1]),
+    minor: Number(match[2]),
+    patch: Number(match[3]),
+    prerelease: match[4] ? match[4].split(".") : [],
+    build: match[5] ? match[5].split(".") : [],
+  };
+}
+
+function compareIdentifiers(a, b) {
+  const aNumeric = /^\d+$/.test(a);
+  const bNumeric = /^\d+$/.test(b);
+  if (aNumeric && bNumeric) return Number(a) - Number(b);
+  if (aNumeric !== bNumeric) return aNumeric ? -1 : 1;
+  return a.localeCompare(b);
+}
+
+function compareBuildMetadata(a, b) {
+  if (a.length === 0 && b.length === 0) return 0;
+  // CI build metadata is part of the user-visible release identity. Treat a
+  // build version as newer than a stable version with the same base, while
+  // ordering two build releases by their numeric build suffix.
+  if (a.length === 0) return -1;
+  if (b.length === 0) return 1;
+  for (let i = 0; i < Math.max(a.length, b.length); i += 1) {
+    if (a[i] === undefined) return -1;
+    if (b[i] === undefined) return 1;
+    const compared = compareIdentifiers(a[i], b[i]);
+    if (compared !== 0) return compared;
+  }
+  return 0;
+}
+
 export function compareSemver(a, b) {
-  const parse = (value) =>
-    String(value ?? "0.0.0")
-      .split(".")
-      .map((part) => Number.parseInt(part, 10) || 0);
-  const [a1, a2, a3] = parse(a);
-  const [b1, b2, b3] = parse(b);
-  if (a1 !== b1) return a1 - b1;
-  if (a2 !== b2) return a2 - b2;
-  return a3 - b3;
+  const left = parseVersion(a);
+  const right = parseVersion(b);
+  for (const key of ["major", "minor", "patch"]) {
+    if (left[key] !== right[key]) return left[key] - right[key];
+  }
+  if (left.prerelease.length === 0 && right.prerelease.length > 0) return 1;
+  if (left.prerelease.length > 0 && right.prerelease.length === 0) return -1;
+  for (let i = 0; i < Math.max(left.prerelease.length, right.prerelease.length); i += 1) {
+    if (left.prerelease[i] === undefined) return -1;
+    if (right.prerelease[i] === undefined) return 1;
+    const compared = compareIdentifiers(left.prerelease[i], right.prerelease[i]);
+    if (compared !== 0) return compared;
+  }
+  return compareBuildMetadata(left.build, right.build);
 }
 
 function normalizeTag(tag) {
@@ -93,7 +139,18 @@ function normalizeTag(tag) {
   return tag.startsWith("v") ? tag.slice(1) : tag;
 }
 
-function emptyResult(currentVersion, platform = process.platform, installSource = "desktop") {
+export function selectLatestRelease(releases, { includePrereleases = false } = {}) {
+  if (!Array.isArray(releases)) return null;
+  return releases
+    .filter((release) => release?.tag_name && !release.draft && (includePrereleases || !release.prerelease))
+    .sort((a, b) => {
+      const versionOrder = compareSemver(a.tag_name, b.tag_name);
+      if (versionOrder !== 0) return -versionOrder;
+      return String(b.published_at ?? b.created_at ?? "").localeCompare(String(a.published_at ?? a.created_at ?? ""));
+    })[0] ?? null;
+}
+
+function emptyResult(currentVersion, platform = process.platform, installSource = "desktop", includePrereleases = false) {
   return {
     current: currentVersion,
     latest: null,
@@ -106,6 +163,7 @@ function emptyResult(currentVersion, platform = process.platform, installSource 
     releaseNotes: null,
     checkedAt: null,
     error: null,
+    includePrereleases,
   };
 }
 
@@ -151,6 +209,7 @@ export class VersionChecker {
     platform = process.platform,
     arch = process.arch,
     installSource = null,
+    includePrereleases = false,
   } = {}) {
     if (!currentVersion) {
       throw new Error("VersionChecker requires currentVersion");
@@ -170,7 +229,8 @@ export class VersionChecker {
     // Explicit override wins (tests, callers that already know); otherwise
     // detect from the runtime paths, with the injected platform as fallback.
     this.installSource = installSource ?? detectInstallSource({ platform });
-    this.lastResult = emptyResult(currentVersion, platform, this.installSource);
+    this.includePrereleases = Boolean(includePrereleases);
+    this.lastResult = emptyResult(currentVersion, platform, this.installSource, this.includePrereleases);
     this._initialTimer = null;
     this._timer = null;
   }
@@ -184,7 +244,11 @@ export class VersionChecker {
     try {
       const raw = await readFile(this.cacheFilePath, "utf8");
       const cached = JSON.parse(raw);
-      if (cached && cached.current === this.currentVersion) {
+      if (
+        cached &&
+        cached.current === this.currentVersion &&
+        Boolean(cached.includePrereleases) === this.includePrereleases
+      ) {
         this.lastResult = { ...this.lastResult, ...cached };
       }
     } catch {
@@ -192,22 +256,28 @@ export class VersionChecker {
     }
   }
 
-  async checkNow({ force = false } = {}) {
-    if (!force && this.lastResult.checkedAt) {
+  async checkNow({ force = false, includePrereleases = this.includePrereleases } = {}) {
+    const requestedIncludePrereleases = Boolean(includePrereleases);
+    const preferenceChanged = requestedIncludePrereleases !== this.includePrereleases;
+    this.includePrereleases = requestedIncludePrereleases;
+    if (!force && !preferenceChanged && this.lastResult.checkedAt) {
       const age = this.now() - this.lastResult.checkedAt;
       if (age < CACHE_TTL_MS) {
         return this.getLastResult();
       }
     }
     try {
+      const endpoint = requestedIncludePrereleases
+        ? `https://api.github.com/repos/${this.repo}/releases?per_page=100`
+        : `https://api.github.com/repos/${this.repo}/releases/latest`;
       const response = await this.fetchImpl(
-        `https://api.github.com/repos/${this.repo}/releases/latest`,
+        endpoint,
         { headers: { accept: "application/vnd.github+json" } },
       );
       if (response.status === 404) {
         // No published release yet — valid state, not an error.
         this.lastResult = {
-          ...emptyResult(this.currentVersion, this.platform, this.installSource),
+          ...emptyResult(this.currentVersion, this.platform, this.installSource, requestedIncludePrereleases),
           checkedAt: this.now(),
         };
       } else if (!response.ok) {
@@ -215,9 +285,19 @@ export class VersionChecker {
           ...this.lastResult,
           checkedAt: this.now(),
           error: `GitHub API returned ${response.status}`,
+          includePrereleases: requestedIncludePrereleases,
         };
       } else {
-        const data = await response.json();
+        const payload = await response.json();
+        const data = requestedIncludePrereleases ? selectLatestRelease(payload, { includePrereleases: true }) : payload;
+        if (!data) {
+          this.lastResult = {
+            ...emptyResult(this.currentVersion, this.platform, this.installSource, requestedIncludePrereleases),
+            checkedAt: this.now(),
+          };
+          await this._persist();
+          return this.getLastResult();
+        }
         const latest = normalizeTag(data.tag_name);
         const hasUpdate = latest ? compareSemver(latest, this.currentVersion) > 0 : false;
         const fromNpm = this.installSource === "npm";
@@ -242,6 +322,7 @@ export class VersionChecker {
           releaseNotes: data.body ?? null,
           checkedAt: this.now(),
           error: null,
+          includePrereleases: requestedIncludePrereleases,
         };
       }
       await this._persist();
@@ -250,6 +331,7 @@ export class VersionChecker {
         ...this.lastResult,
         checkedAt: this.now(),
         error: error?.message ?? String(error),
+        includePrereleases: requestedIncludePrereleases,
       };
     }
     return this.getLastResult();

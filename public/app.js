@@ -74,7 +74,7 @@ function tauriInvoke(command, args) {
   return invoke(command, args);
 }
 
-const isTauri = typeof window.__TAURI__ !== "undefined";
+const canInvokeTauri = typeof window.__TAURI__?.core?.invoke === "function";
 
 // Treat the daemon's own origin as internal so in-app navigation (and the boot
 // page) is never hijacked; only genuinely external http(s) links are diverted.
@@ -93,7 +93,7 @@ function isExternalHttpLink(anchor) {
   }
 }
 
-if (isTauri) {
+if (canInvokeTauri) {
   document.addEventListener(
     "click",
     (event) => {
@@ -102,9 +102,19 @@ if (isTauri) {
         return;
       }
       event.preventDefault();
-      const result = tauriInvoke("open_external", { url: anchor.href });
-      if (result && typeof result.catch === "function") {
-        result.catch((error) => console.error("open_external failed", error));
+      try {
+        const result = tauriInvoke("open_external", { url: anchor.href });
+        if (result && typeof result.catch === "function") {
+          result.catch((error) => {
+            console.error("open_external failed", error);
+            window.location.assign(anchor.href);
+          });
+        } else {
+          window.location.assign(anchor.href);
+        }
+      } catch (error) {
+        console.error("open_external failed", error);
+        window.location.assign(anchor.href);
       }
     },
     true,
@@ -117,7 +127,7 @@ if (isTauri) {
 async function setupKeepAliveToggle() {
   const panel = document.querySelector("#keepAlivePanel");
   const checkbox = document.querySelector("#keepDaemonAlive");
-  if (!panel || !checkbox || !isTauri) {
+  if (!panel || !checkbox || !canInvokeTauri) {
     return;
   }
   panel.hidden = false;
@@ -205,7 +215,12 @@ let channelsById = {};
 let refreshTimer = null;
 let rendering = false;
 let renderQueued = false;
-let logsOffset = 0;
+const LOG_PAGE_SIZE = 20;
+let logsEntries = [];
+let logsOldestId = null;
+let logsHasMore = false;
+let logsLoading = false;
+let logsInitialized = false;
 let conversationThreads = [];
 let conversationShown = 0;
 // D-5/E-5: "Codex 对话" panel state — the user's project selection (remembered
@@ -217,6 +232,25 @@ let threadsItems = []; // accumulated thread list (all loaded pages, newest firs
 let threadsCursor = null; // nextCursor for the next page; null = no more pages
 let threadsPagedBeyondFirst = false; // user clicked "load more" at least once
 const THREADS_PAGE_SIZE = 20;
+
+const PHONE_COMMANDS = [
+  { id: "help", usage: "/help", descriptionKey: "web.commands.description.help" },
+  { id: "status", usage: "/status", descriptionKey: "web.commands.description.status" },
+  { id: "current", usage: "/current", descriptionKey: "web.commands.description.current" },
+  { id: "projects", usage: "/projects", descriptionKey: "web.commands.description.projects" },
+  { id: "open", usage: "/open <number|path>", descriptionKey: "web.commands.description.open" },
+  { id: "sessions", usage: "/sessions", descriptionKey: "web.commands.description.sessions" },
+  { id: "use", usage: "/use <number|id>", descriptionKey: "web.commands.description.use" },
+  { id: "switch", usage: "/switch <number|id>", descriptionKey: "web.commands.description.switch" },
+  { id: "tail", usage: "/tail [n]", descriptionKey: "web.commands.description.tail" },
+  { id: "new", usage: "/new <message>", descriptionKey: "web.commands.description.new" },
+  { id: "file", usage: "/file <path>", descriptionKey: "web.commands.description.file" },
+  { id: "automode", usage: "/automode <true|false>", descriptionKey: "web.commands.description.automode" },
+  { id: "model", usage: "/model", descriptionKey: "web.commands.description.model" },
+  { id: "cancel", usage: "/cancel", descriptionKey: "web.commands.description.cancel" },
+  { id: "approve", usage: "/approve <number>", descriptionKey: "web.commands.description.approve" },
+  { id: "deny", usage: "/deny <number>", descriptionKey: "web.commands.description.deny" },
+];
 
 async function render() {
   // Coalesce instead of dropping: a call arriving mid-render queues one more
@@ -256,7 +290,7 @@ async function renderOnce() {
     safeGet("/api/projects", []),
     safeGet("/api/channels", []),
     safeGet("/api/approvals", []),
-    safeGet("/api/logs?limit=5&offset=0", { entries: [], total: 0, hasMore: false }),
+    safeGet(`/api/logs?limit=${LOG_PAGE_SIZE}&offset=0`, { entries: [], total: 0, hasMore: false }),
   ]);
   // [{...meta, status, runtime, config}] — one registry-driven list drives the
   // cards, the readiness wizard, and the advanced channel dropdown.
@@ -301,6 +335,7 @@ async function renderOnce() {
   renderProjects(projects);
   renderChannels(channels);
   renderChannelDropdown(channels);
+  renderPhoneCommands();
   renderApprovals(approvals);
   renderLogs(logs);
   renderConversation(transcript);
@@ -527,6 +562,14 @@ function renderChannelDropdown(channels) {
   }
 }
 
+function channelIconHtml(channelId, fallback = "") {
+  const svg = window.ComoteChannelIcons?.[channelId];
+  if (svg) {
+    return svg;
+  }
+  return escapeHtml(fallback);
+}
+
 // A connected channel: collapsible row. Collapsed = icon+name+summary+badge+管理.
 // Expanded = binding affordance (pairing code / QR) + status rows + config form + setup.
 function connectedRowHtml(ch) {
@@ -545,7 +588,7 @@ function connectedRowHtml(ch) {
             ? " warning"
             : ""
   }`;
-  const icon = ch.icon ?? (ch.displayName ?? "")[0] ?? "";
+  const icon = channelIconHtml(ch.id, (ch.displayName ?? "")[0] ?? "");
   const summary = channelSummaryLine(ch, tWeb);
   const expanded = expandedChannelId === ch.id;
   const toggleLabel = expanded ? tWeb("web.channel.collapse") : tWeb("web.channel.manage");
@@ -553,7 +596,7 @@ function connectedRowHtml(ch) {
   return `
     <article class="channel-row ${expanded ? "expanded" : ""}" data-channel="${escapeAttr(ch.id)}">
       <div class="channel-row-head">
-        <div class="channel-tile ${escapeAttr(ch.id)}-icon" aria-hidden="true">${escapeHtml(icon)}</div>
+        <div class="channel-tile ${escapeAttr(ch.id)}-icon" aria-hidden="true">${icon}</div>
         <div class="channel-copy"><div class="ch-name">${escapeHtml(ch.displayName ?? ch.id)}</div>${summary ? `<div class="ch-summary" title="${escapeAttr(summary)}">${escapeHtml(summary)}</div>` : ""}</div>
         <span class="${badgeClass}">${escapeHtml(badge.text)}</span>
         <button type="button" class="channel-disclosure" data-toggle="${escapeAttr(ch.id)}" aria-expanded="${expanded}" aria-controls="${escapeAttr(detailId)}" aria-label="${escapeAttr(toggleLabel)}" title="${escapeAttr(toggleLabel)}">
@@ -567,12 +610,12 @@ function connectedRowHtml(ch) {
 // An available (unconfigured) channel: compact add tile; expands into the same
 // config detail when clicked.
 function availableTileHtml(ch) {
-  const icon = ch.icon ?? (ch.displayName ?? "")[0] ?? "";
+  const icon = channelIconHtml(ch.id, (ch.displayName ?? "")[0] ?? "");
   const expanded = expandedChannelId === ch.id;
   if (expanded) {
     return `<article class="channel-add-tile expanded" data-channel="${escapeAttr(ch.id)}">
       <div class="channel-row-head">
-        <div class="channel-tile ${escapeAttr(ch.id)}-icon" aria-hidden="true">${escapeHtml(icon)}</div>
+        <div class="channel-tile ${escapeAttr(ch.id)}-icon" aria-hidden="true">${icon}</div>
         <div class="channel-copy"><div class="ch-name">${escapeHtml(ch.displayName ?? ch.id)}</div><div class="ch-summary">${escapeHtml(tWeb("web.channel.state.notConfigured"))}</div></div>
         <button type="button" class="channel-disclosure" data-toggle="${escapeAttr(ch.id)}" aria-expanded="true" aria-label="${escapeAttr(tWeb("web.channel.collapse"))}" title="${escapeAttr(tWeb("web.channel.collapse"))}">
           <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m6 9 6 6 6-6"/></svg>
@@ -581,7 +624,7 @@ function availableTileHtml(ch) {
       ${channelDetailHtml(ch)}</article>`;
   }
   return `<article class="channel-add-tile" data-channel="${escapeAttr(ch.id)}">
-    <div class="channel-tile ${escapeAttr(ch.id)}-icon" aria-hidden="true">${escapeHtml(icon)}</div>
+    <div class="channel-tile ${escapeAttr(ch.id)}-icon" aria-hidden="true">${icon}</div>
     <div class="channel-copy"><div class="ch-name">${escapeHtml(ch.displayName ?? ch.id)}</div><div class="ch-summary">${escapeHtml(tWeb("web.channel.state.notConfigured"))}</div></div>
     <button type="button" class="secondary-button channel-add-button" data-toggle="${escapeAttr(ch.id)}">
       <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M12 5v14M5 12h14"/></svg>
@@ -749,27 +792,58 @@ function renderLogEntries(entries) {
     .join("");
 }
 
-function renderLogs(result) {
+function renderPhoneCommands() {
+  const target = document.querySelector("#phoneCommandList");
+  if (!target) return;
+  target.innerHTML = PHONE_COMMANDS
+    .map((command) => {
+      const tooltip = tWeb(`web.commands.tooltip.${command.id}`);
+      const description = tWeb(command.descriptionKey);
+      const tooltipId = `phone-command-${command.id}-tooltip`;
+      return `<button type="button" class="command-row" data-command-id="${escapeAttr(command.id)}" data-copy-command="${escapeAttr(command.usage)}" aria-describedby="${tooltipId}" aria-label="${escapeAttr(command.usage)}: ${escapeAttr(description)}" title="${escapeAttr(tooltip)}"><code>${escapeHtml(command.usage)}</code><span class="command-description">${escapeHtml(description)}</span><span id="${tooltipId}" class="command-tooltip" role="tooltip">${escapeHtml(tooltip)}</span></button>`;
+    })
+    .join("");
+}
+
+function paintLogs() {
   const target = document.querySelector("#logList");
-  if (!result.ok) {
-    target.innerHTML = sectionError(tWeb("web.connectors.error.logs"));
-    return;
-  }
-  const data = result.value;
-  const entries = data.entries ?? [];
-  const hasMore = data.hasMore ?? false;
-  logsOffset = entries.length;
-  if (entries.length === 0) {
+  if (!target) return;
+  if (logsEntries.length === 0) {
     target.innerHTML = `<li><strong>${tWeb("web.logs.empty.title")}</strong><div class="meta">${tWeb("web.logs.empty.hint")}</div></li>`;
     return;
   }
-  target.innerHTML = renderLogEntries(entries);
-  if (hasMore) {
-    const btn = document.createElement("li");
-    btn.className = "load-more-item";
-    btn.innerHTML = `<button class="secondary-button load-more-btn" id="logsLoadMore">${tWeb("web.logs.loadMore")}</button>`;
-    target.appendChild(btn);
+  target.innerHTML = renderLogEntries(logsEntries);
+  if (logsLoading) {
+    target.insertAdjacentHTML("beforeend", `<li class="logs-loading meta" aria-live="polite">${escapeHtml(tWeb("web.logs.loading"))}</li>`);
   }
+}
+
+function mergeLogEntries(entries) {
+  const byId = new Map();
+  for (const entry of [...entries, ...logsEntries]) {
+    if (entry?.id != null && !byId.has(entry.id)) {
+      byId.set(entry.id, entry);
+    }
+  }
+  return [...byId.values()].sort((a, b) => Number(b.id ?? 0) - Number(a.id ?? 0));
+}
+
+function renderLogs(result) {
+  const target = document.querySelector("#logList");
+  if (!target) return;
+  if (!result.ok) {
+    if (!logsInitialized) {
+      target.innerHTML = sectionError(tWeb("web.connectors.error.logs"));
+    }
+    return;
+  }
+  const data = result.value;
+  logsEntries = logsInitialized ? mergeLogEntries(data.entries ?? []) : data.entries ?? [];
+  logsHasMore = logsHasMore || Boolean(data.hasMore);
+  logsOldestId = logsEntries.at(-1)?.id ?? null;
+  logsInitialized = true;
+  paintLogs();
+  queueMicrotask(maybeLoadMoreLogs);
 }
 
 function renderConversation(result) {
@@ -1143,6 +1217,52 @@ document.querySelector("#retryLoad").addEventListener("click", async () => {
 
 document.querySelector("#refreshLogs").addEventListener("click", async () => {
   await render();
+});
+
+async function copyCommand(text) {
+  if (typeof navigator.clipboard?.writeText === "function") {
+    try {
+      await navigator.clipboard.writeText(text);
+      return true;
+    } catch {
+      // Continue with the legacy fallback for non-secure local origins.
+    }
+  }
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.opacity = "0";
+  document.body.appendChild(textarea);
+  textarea.select();
+  let copied = false;
+  try {
+    copied = document.execCommand("copy");
+  } catch {
+    copied = false;
+  } finally {
+    textarea.remove();
+  }
+  return copied;
+}
+
+document.querySelector("#phoneCommandList")?.addEventListener("click", async (event) => {
+  const button = event.target.closest("[data-copy-command]");
+  if (!button) return;
+  const command = button.dataset.copyCommand ?? "";
+  const copied = await copyCommand(command);
+  const status = document.querySelector("#commandCopyStatus");
+  if (status) status.textContent = copied ? tWeb("web.commands.copySuccess") : tWeb("web.commands.copyFailed");
+  button.classList.toggle("copied", copied);
+  button.title = copied ? tWeb("web.commands.copySuccess") : tWeb("web.commands.copyFailed");
+  if (copied) {
+    window.setTimeout(() => {
+      if (button.isConnected) {
+        button.classList.remove("copied");
+        button.title = tWeb(`web.commands.tooltip.${button.dataset.commandId ?? ""}`);
+      }
+    }, 1400);
+  }
 });
 
 document.querySelector("#identityForm").addEventListener("submit", async (event) => {
@@ -1549,6 +1669,9 @@ function setupNavigation() {
     }
 
     window.scrollTo({ top: 0, behavior: "auto" });
+    if (pageId === "logs") {
+      queueMicrotask(maybeLoadMoreLogs);
+    }
   }
 
   for (const item of navItems) {
@@ -1765,41 +1888,40 @@ document.querySelector("#threads").addEventListener("click", async (event) => {
   rememberThreadDetail(row, panel);
 });
 
-document.querySelector("#logList").addEventListener("click", async (event) => {
-  const btn = event.target.closest("#logsLoadMore");
-  if (!btn) {
-    return;
+function logsPageIsActive() {
+  return document.querySelector("#logs")?.classList.contains("active") ?? false;
+}
+
+function logsNearBottom() {
+  return window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 160;
+}
+
+async function loadMoreLogs() {
+  if (!logsPageIsActive() || logsLoading || !logsHasMore) return;
+  logsLoading = true;
+  paintLogs();
+  const before = logsOldestId === null ? "" : `&before=${encodeURIComponent(logsOldestId)}`;
+  const result = await safeGet(`/api/logs?limit=${LOG_PAGE_SIZE}${before}`, { entries: [], total: 0, hasMore: false });
+  if (result.ok) {
+    const olderEntries = result.value.entries ?? [];
+    logsEntries = mergeLogEntries(olderEntries);
+    logsOldestId = logsEntries.at(-1)?.id ?? logsOldestId;
+    logsHasMore = Boolean(result.value.hasMore) && olderEntries.length > 0;
   }
-  btn.disabled = true;
-  btn.textContent = tWeb("web.threads.loading");
-  const result = await safeGet(`/api/logs?limit=5&offset=${logsOffset}`, { entries: [], total: 0, hasMore: false });
-  if (!result.ok) {
-    btn.disabled = false;
-    btn.textContent = tWeb("web.logs.loadMore");
-    return;
+  logsLoading = false;
+  paintLogs();
+  if (result.ok && logsHasMore && logsNearBottom()) {
+    queueMicrotask(() => loadMoreLogs().catch(() => {}));
   }
-  const newEntries = result.value.entries ?? [];
-  const newHasMore = result.value.hasMore ?? false;
-  logsOffset += newEntries.length;
-  // Remove the load-more list item
-  const loadMoreItem = btn.closest(".load-more-item");
-  if (loadMoreItem) {
-    loadMoreItem.remove();
+}
+
+function maybeLoadMoreLogs() {
+  if (logsPageIsActive() && logsNearBottom()) {
+    loadMoreLogs().catch(() => {});
   }
-  const target = document.querySelector("#logList");
-  // Append new log rows
-  const tmp = document.createElement("ul");
-  tmp.innerHTML = renderLogEntries(newEntries);
-  while (tmp.firstChild) {
-    target.appendChild(tmp.firstChild);
-  }
-  if (newHasMore) {
-    const li = document.createElement("li");
-    li.className = "load-more-item";
-    li.innerHTML = `<button class="secondary-button load-more-btn" id="logsLoadMore">${tWeb("web.logs.loadMore")}</button>`;
-    target.appendChild(li);
-  }
-});
+}
+
+window.addEventListener("scroll", maybeLoadMoreLogs, { passive: true });
 
 document.querySelector("#conversationList").addEventListener("click", (event) => {
   if (!event.target.closest("#conversationLoadMore")) {
@@ -1857,6 +1979,7 @@ async function onLangChange(event) {
   }
   setWebLocale(locale);
   applyTranslations(document);
+  renderPhoneCommands();
   // Re-render the version banner too: it sets some strings dynamically (e.g. the
   // Linux npm-command hint) that applyTranslations would otherwise revert.
   await refreshVersionStatus().catch(() => {});
@@ -1893,9 +2016,13 @@ async function init() {
   }
   setWebLocale(locale);
   applyTranslations(document);
+  renderPhoneCommands();
   populateLangSelect();
   setupPreferredConnectorSelector(settings.value);
-  await refreshVersionStatus();
+  const versionData = await refreshVersionStatus();
+  if (includePrereleasesPreference() && !versionData?.includePrereleases) {
+    await checkVersionNow(true).catch(() => {});
+  }
   await render(); // paint immediately with whatever the daemon returns
   startAutoRefresh();
   // Re-check version every 15 minutes so the banner appears without a daemon
@@ -1907,12 +2034,24 @@ async function init() {
   connectCodexDesktop().catch(() => {});
 }
 
+function includePrereleasesPreference() {
+  return localStorage.getItem("comoteIncludePrereleases") === "true";
+}
+
+function syncIncludePrereleasesCheckbox(data) {
+  const checkbox = document.querySelector("#includePrereleases");
+  if (!checkbox) return;
+  const stored = localStorage.getItem("comoteIncludePrereleases");
+  checkbox.checked = stored === null ? Boolean(data?.includePrereleases) : stored === "true";
+}
+
 async function refreshVersionStatus() {
   const versionEl = document.querySelector("#sidebarVersion");
   const banner = document.querySelector("#updateNotice");
   const versionResult = await safeGet("/api/version", null);
   const data = versionResult.ok ? versionResult.value : null;
   const current = data?.version ?? null;
+  syncIncludePrereleasesCheckbox(data);
   if (versionEl) {
     if (current && data?.hasUpdate && data.latest) {
       versionEl.textContent = tWeb("web.version.withUpdate", { current, latest: data.latest });
@@ -1970,6 +2109,13 @@ async function refreshVersionStatus() {
   if (aboutLink && data?.releaseUrl) {
     aboutLink.href = data.releaseUrl;
   }
+  return data;
+}
+
+async function checkVersionNow(includePrereleases) {
+  localStorage.setItem("comoteIncludePrereleases", String(includePrereleases));
+  await getJson(`/api/version/check?includePrereleases=${includePrereleases ? "true" : "false"}`, { method: "POST" });
+  await refreshVersionStatus();
 }
 
 document.querySelector("#refreshConnect")?.addEventListener("click", async (event) => {
@@ -2004,14 +2150,18 @@ document.querySelector("#aboutCheckUpdate")?.addEventListener("click", async (ev
   const original = button.textContent;
   button.textContent = tWeb("web.about.checking");
   try {
-    await getJson("/api/version/check", { method: "POST" });
-    await refreshVersionStatus();
+    const checkbox = document.querySelector("#includePrereleases");
+    await checkVersionNow(Boolean(checkbox?.checked));
   } catch (error) {
     window.alert(tWeb("web.about.checkUpdateFailed", { message: error.message }));
   } finally {
     button.disabled = false;
     button.textContent = original;
   }
+});
+
+document.querySelector("#includePrereleases")?.addEventListener("change", (event) => {
+  localStorage.setItem("comoteIncludePrereleases", String(event.currentTarget.checked));
 });
 
 init().catch((error) => {

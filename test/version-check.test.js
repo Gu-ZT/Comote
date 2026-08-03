@@ -10,6 +10,7 @@ import {
   compareSemver,
   detectInstallSource,
   NPM_UPDATE_COMMAND,
+  selectLatestRelease,
   selectDownloadUrl,
 } from "../src/core/version-check.js";
 
@@ -264,6 +265,37 @@ test("compareSemver orders semantic versions numerically", () => {
   assert.ok(compareSemver("0.9.9", "1.0.0") < 0);
   assert.ok(compareSemver("1.10.0", "1.9.0") > 0);
   assert.ok(compareSemver("v0.3.0", "0.2.0") > 0); // v-prefixed input is tolerated by parseInt
+});
+
+test("compareSemver orders CI build metadata after the base version", () => {
+  assert.ok(compareSemver("0.8.1+build.2", "0.8.1") > 0);
+  assert.ok(compareSemver("0.8.1+build.12", "0.8.1+build.2") > 0);
+  assert.ok(compareSemver("0.8.1", "0.8.1+build.12") < 0);
+  assert.ok(compareSemver("0.8.2-rc.1", "0.8.1") > 0);
+});
+
+test("selectLatestRelease filters drafts and stable-only releases", () => {
+  const releases = [
+    { tag_name: "v0.9.0-rc.1", prerelease: true, draft: false },
+    { tag_name: "v0.8.2", prerelease: false, draft: false },
+    { tag_name: "v1.0.0", prerelease: true, draft: true },
+  ];
+  assert.equal(selectLatestRelease(releases)?.tag_name, "v0.8.2");
+  assert.equal(selectLatestRelease(releases, { includePrereleases: true })?.tag_name, "v0.9.0-rc.1");
+});
+
+test("checkNow includes pre-releases when requested", async () => {
+  const fetchImpl = makeFetch(jsonResponse([
+    { tag_name: "v0.9.0-rc.1", prerelease: true, draft: false, html_url: "rc-url", assets: [] },
+    { tag_name: "v0.8.2", prerelease: false, draft: false, html_url: "stable-url", assets: [] },
+  ]));
+  const checker = new VersionChecker({ currentVersion: "0.8.1", fetchImpl, now: () => 1000 });
+  const result = await checker.checkNow({ force: true, includePrereleases: true });
+  assert.equal(fetchImpl.calls[0].url, "https://api.github.com/repos/Gu-ZT/Comote/releases?per_page=100");
+  assert.equal(result.latest, "0.9.0-rc.1");
+  assert.equal(result.releaseUrl, "rc-url");
+  assert.equal(result.includePrereleases, true);
+  assert.equal(result.hasUpdate, true);
 });
 
 test("checkNow flags an update when GitHub returns a newer release", async () => {

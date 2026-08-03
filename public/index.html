@@ -154,36 +154,8 @@
             <span class="badge neutral" data-i18n="web.commands.badge">微信和飞书均可用</span>
           </div>
 
-          <div class="command-grid">
-            <div class="command-chip">
-              <code tabindex="0" aria-describedby="command-projects-tooltip">/projects</code>
-              <span id="command-projects-tooltip" class="command-tooltip" role="tooltip" data-i18n="web.commands.tooltip.projects">作用：列出可操作的项目。&#10;用法：/projects</span>
-            </div>
-            <div class="command-chip">
-              <code tabindex="0" aria-describedby="command-open-tooltip">/open 1</code>
-              <span id="command-open-tooltip" class="command-tooltip" role="tooltip" data-i18n="web.commands.tooltip.open">作用：选择要操作的项目。&#10;用法：/open &lt;编号|绝对路径&gt;</span>
-            </div>
-            <div class="command-chip">
-              <code tabindex="0" aria-describedby="command-sessions-tooltip">/sessions</code>
-              <span id="command-sessions-tooltip" class="command-tooltip" role="tooltip" data-i18n="web.commands.tooltip.sessions">作用：列出当前项目的 Codex 对话。&#10;用法：/sessions</span>
-            </div>
-            <div class="command-chip">
-              <code tabindex="0" aria-describedby="command-new-tooltip">/new fix tests</code>
-              <span id="command-new-tooltip" class="command-tooltip" role="tooltip" data-i18n="web.commands.tooltip.new">作用：新建对话并发送第一条任务。&#10;用法：/new &lt;消息&gt;</span>
-            </div>
-            <div class="command-chip">
-              <code tabindex="0" aria-describedby="command-approve-tooltip">/approve &lt;id&gt;</code>
-              <span id="command-approve-tooltip" class="command-tooltip" role="tooltip" data-i18n="web.commands.tooltip.approve">作用：批准一次待处理的 Codex 请求。&#10;用法：/approve &lt;审批编号&gt;</span>
-            </div>
-            <div class="command-chip">
-              <code tabindex="0" aria-describedby="command-automode-tooltip">/automode true</code>
-              <span id="command-automode-tooltip" class="command-tooltip" role="tooltip" data-i18n="web.commands.tooltip.automode">作用：切换 Approve for me。&#10;用法：/automode &lt;true|false&gt;</span>
-            </div>
-            <div class="command-chip">
-              <code tabindex="0" aria-describedby="command-cancel-tooltip">/cancel</code>
-              <span id="command-cancel-tooltip" class="command-tooltip" role="tooltip" data-i18n="web.commands.tooltip.cancel">作用：取消当前 Codex 任务或退出选择。&#10;用法：/cancel</span>
-            </div>
-          </div>
+          <div id="phoneCommandList" class="command-list"></div>
+          <span id="commandCopyStatus" class="visually-hidden" aria-live="polite"></span>
         </section>
 
         <section id="approvals" class="section-block app-page">
@@ -317,6 +289,16 @@
                 <button id="aboutCheckUpdate" class="secondary-button" type="button" data-i18n="web.about.checkUpdate">检查更新</button>
                 <a id="aboutReleasesLink" class="secondary-button" href="https://github.com/Gu-ZT/Comote/releases" target="_blank" rel="noopener" data-i18n="web.about.allReleases">查看所有版本</a>
               </div>
+              <label class="setting-toggle update-preference" for="includePrereleases">
+                <span class="setting-copy">
+                  <strong data-i18n="web.about.includePrereleases">包含 pre-releases</strong>
+                  <span class="setting-note" data-i18n="web.about.includePrereleasesHint">检查更新时同时查找预发布版本。</span>
+                </span>
+                <span class="switch-control">
+                  <input id="includePrereleases" type="checkbox" role="switch" data-i18n-attr="aria-label:web.about.includePrereleases" aria-label="包含 pre-releases">
+                  <span class="switch-track" aria-hidden="true"></span>
+                </span>
+              </label>
             </article>
             <article class="panel">
               <h3 data-i18n="web.about.project">项目</h3>
@@ -333,6 +315,7 @@
       </main>
     </div>
 
+    <script src="/vendor/channel-icons.js"></script>
     <script type="module" src="/app.js"></script>
   </body>
 </html>

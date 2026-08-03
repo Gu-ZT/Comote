@@ -64,3 +64,17 @@ test("EventLog list default (no args) still returns entries newest-first", () =>
   assert.equal(entries[0].message, "second");
   assert.equal(entries[1].message, "first");
 });
+
+test("EventLog before cursor returns only older entries and reports remaining history", () => {
+  const log = new EventLog();
+  log.record("info", "first");
+  log.record("info", "second");
+  log.record("info", "third");
+
+  const page = log.list({ limit: 2, before: 3 });
+
+  assert.deepEqual(page.map((entry) => entry.message), ["second", "first"]);
+  assert.equal(log.hasBefore(3), true);
+  assert.equal(log.hasBefore(2), true);
+  assert.equal(log.hasBefore(1), false);
+});

@@ -62,7 +62,7 @@ const dingtalkPlugin = {
     binding: "credentials",
     capabilities: { cards: 1, media: 1, liveUpdates: 1, milestones: 0, typing: 0, fileButtons: 0, reactions: 0 },
     descriptionKey: "web.channel.dingtalk.desc",
-    icon: "钉",
+    icon: "dingtalk",
     configFields: [
       { name: "appKey", type: "text", labelKey: "web.channel.dingtalk.appKey" },
       { name: "appSecret", type: "text", secret: true, labelKey: "web.channel.dingtalk.appSecret" },

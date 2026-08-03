@@ -734,6 +734,12 @@ button,
   color: #ffffff;
 }
 
+.channel-tile svg {
+  display: block;
+  width: 28px;
+  height: 28px;
+}
+
 .wechat-icon {
   background: linear-gradient(140deg, #4ec96e, #2fb551);
   box-shadow: 0 5px 14px rgba(47, 181, 81, 0.30);
@@ -1094,37 +1100,67 @@ textarea {
 }
 
 /* ============================================================
-   COMMAND GRID
+   PHONE COMMAND LIST
    ============================================================ */
-.command-grid {
+.command-list {
   display: grid;
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 10px;
+  gap: 8px;
 }
 
-.command-chip {
+.command-row {
   position: relative;
+  display: grid;
+  grid-template-columns: minmax(190px, 1fr) minmax(0, 2fr);
+  align-items: center;
+  width: 100%;
   min-width: 0;
+  min-height: 48px;
+  padding: 8px 12px;
+  border: 1px solid var(--line);
+  border-radius: var(--radius-md);
+  background: var(--surface);
+  color: var(--ink);
+  text-align: left;
+  box-shadow: none;
 }
 
-.command-chip:hover,
-.command-chip:focus-within {
+.command-row:hover:not(:disabled),
+.command-row:focus-visible {
   z-index: 20;
+  border-color: var(--teal);
+  background: var(--surface-low);
+  box-shadow: 0 0 0 2px var(--teal-shadow);
+  transform: none;
 }
 
-.command-chip code {
-  height: 100%;
-  cursor: help;
+.command-row.copied {
+  border-color: var(--success);
+  background: var(--success-bg);
 }
 
-.command-chip code:focus-visible {
-  outline: 2px solid var(--teal);
-  outline-offset: 2px;
+.command-row code {
+  min-width: 0;
+  padding: 0;
+  overflow-wrap: anywhere;
+  border: 0;
+  background: transparent;
+  color: var(--ink);
+  font-family: var(--font-mono);
+  font-size: 13px;
+}
+
+.command-description {
+  min-width: 0;
+  overflow: hidden;
+  color: var(--muted);
+  font-size: 13px;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .command-tooltip {
   position: absolute;
-  left: 50%;
+  left: 12px;
   bottom: calc(100% + 9px);
   z-index: 30;
   width: max-content;
@@ -1145,23 +1181,12 @@ textarea {
   pointer-events: none;
   opacity: 0;
   visibility: hidden;
-  transform: translateX(-50%);
+  transform: none;
   transition: opacity 120ms ease, visibility 120ms ease;
 }
 
-.command-chip:nth-child(3n + 1) .command-tooltip {
-  left: 0;
-  transform: none;
-}
-
-.command-chip:nth-child(3n) .command-tooltip {
-  right: 0;
-  left: auto;
-  transform: none;
-}
-
-.command-chip:hover .command-tooltip,
-.command-chip:focus-within .command-tooltip {
+.command-row:hover .command-tooltip,
+.command-row:focus-visible .command-tooltip {
   opacity: 1;
   visibility: visible;
 }
@@ -1354,9 +1379,10 @@ code {
 
 .advanced-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
+  grid-template-columns: minmax(0, 760px);
+  justify-content: center;
   gap: 18px;
-  padding: 0 20px 20px;
+  padding: 0;
 }
 
 /* ============================================================
@@ -1648,6 +1674,11 @@ code {
 .log-list li.log-error {
   border-left-color: var(--error);
   background: var(--error-soft);
+}
+
+.log-list li.logs-loading {
+  padding: 10px 12px;
+  text-align: center;
 }
 
 /* Compact list variant — tighter gaps for candidate/short lists */
@@ -2250,11 +2281,6 @@ summary:focus-visible {
   font-size: 14px;
 }
 
-.command-grid {
-  grid-template-columns: repeat(3, minmax(0, 1fr));
-  gap: 8px;
-}
-
 code {
   border-radius: var(--radius-md);
   background: var(--surface);
@@ -2268,6 +2294,8 @@ code {
 }
 
 .advanced-grid {
+  grid-template-columns: minmax(0, 760px);
+  justify-content: center;
   gap: 16px;
   padding: 0;
 }
@@ -2369,29 +2397,10 @@ code {
 @media (max-width: 1100px) {
   #users .user-grid,
   .advanced-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
+    justify-content: stretch;
   }
 
-  .command-grid {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
-  }
-
-  .command-chip:nth-child(n) .command-tooltip {
-    right: auto;
-    left: 50%;
-    transform: translateX(-50%);
-  }
-
-  .command-chip:nth-child(2n + 1) .command-tooltip {
-    left: 0;
-    transform: none;
-  }
-
-  .command-chip:nth-child(2n) .command-tooltip {
-    right: 0;
-    left: auto;
-    transform: none;
-  }
 }
 
 @media (max-width: 820px) {
@@ -2459,7 +2468,7 @@ code {
   .user-grid,
   #users .user-grid,
   .advanced-grid {
-    grid-template-columns: 1fr;
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 
@@ -2495,19 +2504,25 @@ code {
     font-size: 21px;
   }
 
-  .readiness-list,
-  .command-grid {
+  .readiness-list {
     grid-template-columns: 1fr;
+  }
+
+  .command-row {
+    grid-template-columns: 1fr;
+  }
+
+  .command-description {
+    display: none;
+  }
+
+  .command-tooltip {
+    right: 12px;
+    max-width: none;
   }
 
   .segmented-selector {
     grid-template-columns: 1fr;
-  }
-
-  .command-chip:nth-child(n) .command-tooltip {
-    right: auto;
-    left: 0;
-    transform: none;
   }
 
   .channel-add-grid {

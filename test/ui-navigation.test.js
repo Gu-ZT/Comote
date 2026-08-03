@@ -51,22 +51,26 @@ test("desktop approvals expose the allow-for-session decision", async () => {
   assert.match(css, /@media \(max-width: 560px\)[\s\S]*\.approval-actions\s*\{[^}]*grid-template-columns:\s*1fr/s);
 });
 
-test("phone commands expose localized hover and keyboard tooltips", async () => {
-  const [html, css] = await Promise.all([
+test("phone commands render as a complete copyable list with tooltips", async () => {
+  const [html, js, css] = await Promise.all([
     readFile("public/index.html", "utf8"),
+    readFile("public/app.js", "utf8"),
     readFile("public/styles.css", "utf8"),
   ]);
-  assert.equal((html.match(/class="command-chip"/g) ?? []).length, 7);
-  assert.equal((html.match(/role="tooltip"/g) ?? []).length, 7);
-  assert.equal((html.match(/<code tabindex="0" aria-describedby=/g) ?? []).length, 7);
-  for (const command of ["projects", "open", "sessions", "new", "approve", "automode", "cancel"]) {
-    assert.match(html, new RegExp(`data-i18n="web\\.commands\\.tooltip\\.${command}"`));
-    assert.match(html, new RegExp(`aria-describedby="command-${command}-tooltip"`));
-    assert.match(html, new RegExp(`id="command-${command}-tooltip"`));
+  assert.match(html, /id="phoneCommandList" class="command-list"/);
+  assert.doesNotMatch(html, /command-chip/);
+  assert.match(js, /const PHONE_COMMANDS = \[/);
+  for (const command of ["help", "status", "current", "projects", "open", "sessions", "use", "switch", "tail", "new", "file", "automode", "model", "cancel", "approve", "deny"]) {
+    assert.match(js, new RegExp(`id: "${command}"`));
+    assert.match(js, new RegExp(`web\\.commands\\.tooltip\\.\\$\\{command\\.id\\}`));
   }
-  assert.match(css, /\.command-chip:hover \.command-tooltip/);
-  assert.match(css, /\.command-chip:focus-within \.command-tooltip/);
-  assert.match(css, /\.command-chip code:focus-visible/);
+  assert.match(js, /navigator\.clipboard\.writeText/);
+  assert.match(js, /document\.execCommand\("copy"\)/);
+  assert.match(css, /\.command-row:hover[^\{]*\.command-tooltip/);
+  assert.match(css, /\.command-row:focus-visible[^\{]*\.command-tooltip/);
+  assert.match(css, /\.command-row\s*\{[^}]*grid-template-columns:\s*minmax\(190px, 1fr\) minmax\(0, 2fr\)/s);
+  assert.match(css, /\.command-description\s*\{[^}]*text-overflow:\s*ellipsis/s);
+  assert.match(css, /\.command-description\s*\{\s*display:\s*none/s);
   assert.match(css, /white-space:\s*pre-line/);
   assert.match(css, /max-width:\s*min\(320px, calc\(100vw - 40px\)\)/);
 });
@@ -83,6 +87,29 @@ test("advanced settings expose a persistent Codex connector selector", async () 
   assert.match(html, /name="preferredConnector" value="cli"/);
   assert.match(js, /JSON\.stringify\(\{ preferredConnector: radio\.value \}\)/);
   assert.match(css, /\.segmented-selector\s*\{[^}]*grid-template-columns:\s*repeat\(2/s);
+  assert.match(css, /\.advanced-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 760px\)[^}]*justify-content:\s*center/s);
+});
+
+test("Tauri external links use the real bridge and keep a browser fallback", async () => {
+  const [js, config] = await Promise.all([
+    readFile("public/app.js", "utf8"),
+    readFile("src-tauri/tauri.conf.json", "utf8"),
+  ]);
+  assert.match(js, /const canInvokeTauri = typeof window\.__TAURI__\?\.core\?\.invoke === "function"/);
+  assert.match(js, /if \(canInvokeTauri\)/);
+  assert.match(config, /"withGlobalTauri"\s*:\s*true/);
+});
+
+test("channel cards use local brand SVG icons", async () => {
+  const [js, icons] = await Promise.all([
+    readFile("public/app.js", "utf8"),
+    readFile("public/vendor/channel-icons.js", "utf8"),
+  ]);
+  for (const channel of ["feishu", "dingtalk", "wechat", "telegram"]) {
+    assert.match(icons, new RegExp(`\\"${channel}\\":\\"<svg`));
+  }
+  assert.match(js, /window\.ComoteChannelIcons/);
+  assert.match(js, /function channelIconHtml/);
 });
 
 test("narrow-window layout has one responsive system and a stable sidebar", async () => {
@@ -91,7 +118,7 @@ test("narrow-window layout has one responsive system and a stable sidebar", asyn
   assert.doesNotMatch(css, /@media \(max-width: 960px\)/);
   assert.match(css, /@media \(max-width: 820px\)[\s\S]*\.nav-list\s*\{[^}]*flex-flow:\s*row nowrap/);
   assert.match(css, /\.nav-item > span:not\(\.nav-count\)[\s\S]*white-space:\s*nowrap/);
-  assert.match(css, /@media \(max-width: 1100px\)[\s\S]*\.command-grid\s*\{[^}]*repeat\(2/);
+  assert.match(css, /\.command-row\s*\{[^}]*grid-template-columns:\s*minmax\(190px, 1fr\) minmax\(0, 2fr\)/s);
 });
 
 test("color theme follows the operating system without JavaScript state", async () => {

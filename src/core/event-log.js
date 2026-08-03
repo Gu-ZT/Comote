@@ -41,9 +41,22 @@ export class EventLog {
     return this.record("error", message, detail);
   }
 
-  list({ limit = 100, offset = 0 } = {}) {
-    const newestFirst = this.entries.slice().reverse();
+  list({ limit = 100, offset = 0, before = null } = {}) {
+    const beforeId = before === null || before === undefined || before === ""
+      ? null
+      : Number.isFinite(Number(before))
+        ? Number(before)
+        : null;
+    const newestFirst = this.entries
+      .slice()
+      .reverse()
+      .filter((entry) => beforeId === null || entry.id < beforeId);
     return newestFirst.slice(offset, offset + limit).map((entry) => ({ ...entry }));
+  }
+
+  hasBefore(id) {
+    const beforeId = Number(id);
+    return Number.isFinite(beforeId) && this.entries.some((entry) => entry.id < beforeId);
   }
 
   size() {

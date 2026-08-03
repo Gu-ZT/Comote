@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 
 import { createServer } from "../src/server/app.js";
 import { createComoteState } from "../src/server/state.js";
+import { EventLog } from "../src/core/event-log.js";
 import { setLocale as setI18nLocale } from "../src/core/i18n/index.js";
 
 function createFakeState() {
@@ -145,6 +146,66 @@ test("version API surfaces the checker's downloadUrl", async () => {
     body.downloadUrl,
     "https://github.com/owner/repo/releases/download/v0.3.0/comote.dmg",
   );
+});
+
+test("version check API forwards the pre-release preference", async () => {
+  let checkOptions = null;
+  const state = {
+    ...createFakeState(),
+    currentVersion: "0.8.1",
+    versionChecker: {
+      getLastResult: () => ({
+        latest: "0.9.0-rc.1",
+        hasUpdate: true,
+        releaseUrl: "https://github.com/Gu-ZT/Comote/releases/tag/v0.9.0-rc.1",
+        downloadUrl: null,
+        releaseNotes: null,
+        checkedAt: 1000,
+        error: null,
+        includePrereleases: checkOptions?.includePrereleases ?? false,
+      }),
+      checkNow: async (options) => {
+        checkOptions = options;
+      },
+    },
+  };
+  const app = createServer(state);
+  const server = app.listen(0);
+  await new Promise((resolve) => server.once("listening", resolve));
+
+  const { port } = server.address();
+  const response = await fetch(`http://127.0.0.1:${port}/api/version/check?includePrereleases=true`, {
+    method: "POST",
+  });
+  const body = await response.json();
+  server.close();
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(checkOptions, { force: true, includePrereleases: true });
+  assert.equal(body.includePrereleases, true);
+});
+
+test("logs API supports loading older entries with a before cursor", async () => {
+  const eventLog = new EventLog();
+  eventLog.record("info", "first");
+  eventLog.record("info", "second");
+  eventLog.record("info", "third");
+  const app = createServer({ ...createFakeState(), eventLog });
+  const server = app.listen(0);
+  await new Promise((resolve) => server.once("listening", resolve));
+
+  const { port } = server.address();
+  const first = await fetch(`http://127.0.0.1:${port}/api/logs?limit=2`);
+  const firstBody = await first.json();
+  const oldestId = firstBody.entries.at(-1).id;
+  const older = await fetch(`http://127.0.0.1:${port}/api/logs?limit=2&before=${oldestId}`);
+  const olderBody = await older.json();
+  server.close();
+
+  assert.deepEqual(firstBody.entries.map((entry) => entry.message), ["third", "second"]);
+  assert.equal(firstBody.hasMore, true);
+  assert.deepEqual(olderBody.entries.map((entry) => entry.message), ["first"]);
+  assert.equal(olderBody.hasMore, false);
 });
 
 test("serves svg assets with an image content type", async () => {

@@ -52,7 +52,7 @@ const telegramPlugin = {
     binding: "token",
     capabilities: { cards: 1, media: 1, liveUpdates: 1, milestones: 0, typing: 1, fileButtons: 1, reactions: 1 },
     descriptionKey: "web.channel.telegram.desc",
-    icon: "TG",
+    icon: "telegram",
     configFields: [
       { name: "botToken", type: "text", secret: true, labelKey: "web.channel.telegram.botToken" },
     ],

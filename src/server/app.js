@@ -124,7 +124,12 @@ async function handleApi(request, response, state) {
       sendJson(response, 200, { version: state.currentVersion ?? null });
       return;
     }
-    await state.versionChecker.checkNow({ force: true });
+    const includePrereleasesParam = url.searchParams.get("includePrereleases");
+    const checkOptions = { force: true };
+    if (includePrereleasesParam === "true" || includePrereleasesParam === "false") {
+      checkOptions.includePrereleases = includePrereleasesParam === "true";
+    }
+    await state.versionChecker.checkNow(checkOptions);
     sendJson(response, 200, formatVersionResponse(state));
     return;
   }
@@ -132,9 +137,14 @@ async function handleApi(request, response, state) {
   if (request.method === "GET" && url.pathname === "/api/logs") {
     const limit = Number(url.searchParams.get("limit") || 100);
     const offset = Number(url.searchParams.get("offset") || 0);
-    const entries = state.eventLog?.list?.({ limit, offset }) ?? [];
+    const beforeParam = url.searchParams.get("before");
+    const before = beforeParam === null ? null : Number(beforeParam);
+    const entries = state.eventLog?.list?.({ limit, offset, before }) ?? [];
     const total = state.eventLog?.size?.() ?? entries.length;
-    sendJson(response, 200, { entries, total, hasMore: offset + entries.length < total });
+    const hasMore = before !== null
+      ? Boolean(state.eventLog?.hasBefore?.(entries.at(-1)?.id ?? before))
+      : offset + entries.length < total;
+    sendJson(response, 200, { entries, total, hasMore });
     return;
   }
 
@@ -558,6 +568,7 @@ function formatVersionResponse(state) {
       updateCommand: detectInstallSource() === "npm" ? NPM_UPDATE_COMMAND : null,
       platform: process.platform,
       checkedAt: null,
+      includePrereleases: false,
     };
   }
   const result = state.versionChecker.getLastResult();
@@ -576,6 +587,7 @@ function formatVersionResponse(state) {
     releaseNotes: result.releaseNotes,
     checkedAt: result.checkedAt,
     error: result.error,
+    includePrereleases: Boolean(result.includePrereleases),
   };
 }
 
