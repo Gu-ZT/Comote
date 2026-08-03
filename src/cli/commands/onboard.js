@@ -51,7 +51,7 @@ export async function runWizard({
   const r = createRenderer({ flags, env });
   const line = (s = "") => write(`${s}\n`);
 
-  line(r.bold("Comote setup wizard"));
+  line(r.bold("GugleComote setup wizard"));
   line(r.dim("Get your bot talking to Codex in a few steps."));
   line();
 

@@ -73,7 +73,7 @@ async function runFileMode({
     for (const c of candidates) {
       write(`  ${c.path} (${c.label})\n`);
     }
-    write("These files are only written when Comote runs as the desktop App.\n");
+    write("These files are only written when GugleComote runs as the desktop App.\n");
     write(`Use \`comote logs\` for the daemon's in-memory event log.\n`);
     return 0;
   }

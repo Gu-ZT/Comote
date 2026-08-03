@@ -2,22 +2,22 @@
 
 <img src=".idea/icon.png" width="256" height="256" alt="Icon" />
 
-# Comote
+# GugleComote
 
-**手机上的 Codex 遥控器 · 本地运行 · 无 Comote 自有服务器**
+**手机上的 Codex 遥控器 · 本地运行 · 无 GugleComote 自有服务器**
 
 把你电脑上的 [Codex](https://openai.com/codex)（ChatGPT 桌面应用，原 Codex Desktop；或 Codex CLI）接到飞书 / 微信 / 钉钉 /
 Telegram，让你在地铁里、客户那边、半夜的床上，都能继续指挥你的 Codex agent —— 不需要把电脑暴露到公网，不需要租服务器，不需要装一堆中间件。
 
-[English](./README.en.md) · [快速开始](#快速开始) · [常见问题](#faq) · [仓库](https://github.com/GavinYangAI/comote)
+[English](./README.en.md) · [快速开始](#快速开始) · [常见问题](#faq) · [仓库](https://github.com/Gu-ZT/Comote)
 
 </div>
 
 ---
 
-## 什么是 Comote
+## 什么是 GugleComote
 
-不管你用 Codex 写代码，还是拿它处理数据、整理文档、做调研和起草 —— Comote 都是同一个手机遥控器。它面向 **所有在本机跑 Codex
+不管你用 Codex 写代码，还是拿它处理数据、整理文档、做调研和起草 —— GugleComote 都是同一个手机遥控器。它面向 **所有在本机跑 Codex
 的人**（不管装的是 ChatGPT 桌面应用还是 Codex CLI），不只是程序员。
 
 **中午外出就餐时**，你想起上午那个 bug 的修法，掏出手机在飞书里发：
@@ -30,11 +30,11 @@ Telegram，让你在地铁里、客户那边、半夜的床上，都能继续指
 
 > `新建 thread：把 downloads 里那批客户访谈录音转成文字，整理成一份带时间戳的纪要表`
 
-等你忙完回到工位，桌面 Comote 里那份整理好的纪要表已经在等你了。
+等你忙完回到工位，桌面 GugleComote 里那份整理好的纪要表已经在等你了。
 
-### 为什么用 Comote
+### 为什么用 GugleComote
 
-| 场景                          | 一般做法              | Comote                                    |
+| 场景                          | 一般做法              | GugleComote                               |
 |-------------------------------|-----------------------|-------------------------------------------|
 | 远程使唤本机 Codex            | SSH + tmux + 手敲命令 | 飞书发一句话                              |
 | 在 IM 里审批 Codex 的高危操作 | 没法做                | 卡片点按钮                                |
@@ -51,7 +51,7 @@ Telegram，让你在地铁里、客户那边、半夜的床上，都能继续指
 - **可扩展** —— 加新 IM 就实现一个 channel adapter；加新 agent 后端就实现一个 connector
 
 > **关于官方 Codex 手机端**：OpenAI 自己出了 ChatGPT/Codex 的手机客户端，但它只服务 ChatGPT 订阅用户 —— 用 API key 在本机跑
-> Codex（CLI 或桌面应用）的人没法用，因为它看不到你本机的 thread。Comote 就是给这类用户的：你的 Codex 在你电脑上跑、用你自己的
+> Codex（CLI 或桌面应用）的人没法用，因为它看不到你本机的 thread。GugleComote 就是给这类用户的：你的 Codex 在你电脑上跑、用你自己的
 > key，手机端只是个遥控器。等哪天官方支持了 API 用户远程控制本机 Codex，我们就退役。
 
 ## 支持的渠道
@@ -95,14 +95,14 @@ Telegram，让你在地铁里、客户那边、半夜的床上，都能继续指
 
 并且已经登录：桌面应用内登录，或跑一次 `codex login`。
 
-Comote 通过 `codex app-server`（stdio JSON-RPC）与 Codex 通信，会自动把它作为子进程拉起 —— **无需保持任何 Codex 窗口打开**。
+GugleComote 通过 `codex app-server`（stdio JSON-RPC）与 Codex 通信，会自动把它作为子进程拉起 —— **无需保持任何 Codex 窗口打开**。
 
 ### 1. 下载安装
 
-**桌面版**（带图形界面）—— 到 [Releases](https://github.com/GavinYangAI/comote/releases) 下载最新版：
+**桌面版**（带图形界面）—— 到 [Releases](https://github.com/Gu-ZT/Comote/releases) 下载最新版：
 
-- macOS：`Comote-x.y.z.dmg`
-- Windows：`Comote-x.y.z-setup.exe`
+- macOS：`GugleComote-x.y.z.dmg`
+- Windows：`GugleComote-x.y.z-setup.exe`
 
 **npm**（命令行版，跨平台，含 Linux）：
 
@@ -114,7 +114,7 @@ Linux / 无界面服务器请看[下面](#linux--无界面服务器headless-vps)
 
 ### 2. 绑定一个 IM
 
-打开 Comote，在 Web 设置页选一个渠道绑定（也可以都绑）。四种渠道有两类绑定方式：
+打开 GugleComote，在 Web 设置页选一个渠道绑定（也可以都绑）。四种渠道有两类绑定方式：
 
 **扫码类（飞书 / 微信）—— 在桌面确认身份**
 
@@ -132,7 +132,7 @@ Linux / 无界面服务器请看[下面](#linux--无界面服务器headless-vps)
 
 **只有绑定 / 确认过的身份才能控制 Codex。**
 
-- 飞书 / 微信：第一次发消息，Comote 会在桌面 UI 弹"待授权"卡片，点"确认"。
+- 飞书 / 微信：第一次发消息，GugleComote 会在桌面 UI 弹"待授权"卡片，点"确认"。
 - Telegram：发出配对码即完成绑定，无需再到桌面确认。
 - 钉钉：以发消息的用户身份绑定。
 
@@ -159,7 +159,7 @@ Linux / 无界面服务器请看[下面](#linux--无界面服务器headless-vps)
          │
          ▼ 长连接 / 推送
 ┌──────────────────────────┐
-│  Comote daemon (本机)    │
+│  GugleComote daemon (本机)    │
 │  ├─ Channel Adapter      │  ← 把平台消息标准化
 │  ├─ 授权 / 命令路由      │
 │  ├─ Project / Session    │
@@ -171,9 +171,9 @@ Linux / 无界面服务器请看[下面](#linux--无界面服务器headless-vps)
 
 桌面端用 [Tauri](https://tauri.app/) 包了一层壳，Node daemon 作为 sidecar 启动，只监听本机回环地址。
 
-**本地优先，诚实版**：Comote 没有自己的服务器，你的消息不经过任何 Comote 自有服务器中转；Codex 调用全部发生在本机（daemon
+**本地优先，诚实版**：GugleComote 没有自己的服务器，你的消息不经过任何 GugleComote 自有服务器中转；Codex 调用全部发生在本机（daemon
 在本机直接跟 `codex app-server` 子进程说话），daemon 也只绑 `127.0.0.1`
-，授权、token、会话历史都存在本机（见下面[数据存储位置](#数据存储位置)）。但要说清楚一点：你和 Comote 之间的消息 **经由你所选
+，授权、token、会话历史都存在本机（见下面[数据存储位置](#数据存储位置)）。但要说清楚一点：你和 GugleComote 之间的消息 **经由你所选
 IM 平台自己的服务器**传输（飞书是 WebSocket 长连接，钉钉是 Stream 长连接，微信是 iLink getupdates 轮询，Telegram 是
 getUpdates 长轮询），这段链路受该 IM 平台的隐私政策约束。
 
@@ -181,7 +181,7 @@ getUpdates 长轮询），这段链路受该 IM 平台的隐私政策约束。
 
 ### 配置的三层结构
 
-Comote 的配置分三层，各管各的：
+GugleComote 的配置分三层，各管各的：
 
 | 层             | 管什么                                                                       | 谁来写                                       | 典型场景            |
 |----------------|------------------------------------------------------------------------------|----------------------------------------------|---------------------|
@@ -257,16 +257,16 @@ comote logs          # daemon 内存事件日志（daemon 活着才有；--limit
 ## Linux / 无界面服务器（headless VPS）
 
 <details>
-<summary>想把 Comote 跑在一台没有显示器、没有桌面环境的 Linux VPS 上？可以 —— 有一个纯命令行的 headless daemon，不依赖任何 GUI / webkit。</summary>
+<summary>想把 GugleComote 跑在一台没有显示器、没有桌面环境的 Linux VPS 上？可以 —— 有一个纯命令行的 headless daemon，不依赖任何 GUI / webkit。</summary>
 
-**它是什么** —— 完整的 app-server connector（threads、流式回复、exec / applyPatch 审批）照常工作，因为 Comote 是跟
+**它是什么** —— 完整的 app-server connector（threads、流式回复、exec / applyPatch 审批）照常工作，因为 GugleComote 是跟
 `codex app-server`（codex 的一个子命令）说话， **不是**跟任何图形界面（如 ChatGPT 桌面应用）说话。所以没有桌面环境也完全没问题。
 
 **前置条件**
 
 - 装好 **Codex CLI**，并确保 `codex` 在 PATH 上。
 - ⚠️ **先跑 `codex login`** —— 这是第一次部署最容易踩的坑。没有显示器、没浏览器的 VPS 上，用 **device-auth（设备码登录）或
-  API key** 完成登录。 **没登录过，app-server 起不来，Comote 也就连不上 Codex。**
+  API key** 完成登录。 **没登录过，app-server 起不来，GugleComote 也就连不上 Codex。**
 
 **安装**
 
@@ -291,7 +291,7 @@ journalctl -u comote -f                # 跟日志
 > ⚠️ **daemon 必须用跑过 `codex login` 的那个用户来运行。** codex 的登录态在该用户的 `~/.codex` 下；如果 systemd 用一个专用
 > `comote` 用户跑，就得先用那个用户登录（`sudo -u comote codex login`），否则 app-server 读不到认证、连不上 Codex。
 
-Comote 会 **自己把 `codex app-server` 作为子进程启动并自动连接**——Linux 上 **没有**需要你单独"打开"或常驻的 Codex
+GugleComote 会 **自己把 `codex app-server` 作为子进程启动并自动连接**——Linux 上 **没有**需要你单独"打开"或常驻的 Codex
 应用。快速试用也可以直接前台跑 `comote`（但关掉终端 / 重启就停了）。
 
 **访问 Web 控制台**
@@ -324,7 +324,7 @@ npm i -g comote@latest   # 然后重启服务：systemctl restart comote
 
 Linux 上没有应用内自动下载更新，手动升级即可。
 
-**一点说明** —— Comote 是针对某个较新的 codex 版本验证（certified）过的。app-server 协议历史上变过，如果升级后出问题，先把
+**一点说明** —— GugleComote 是针对某个较新的 codex 版本验证（certified）过的。app-server 协议历史上变过，如果升级后出问题，先把
 codex 钉（pin）回一个已知可用的版本再排查。
 
 </details>
@@ -334,7 +334,7 @@ codex 钉（pin）回一个已知可用的版本再排查。
 要求：Node.js ≥ 22，Rust（Tauri 需要），macOS 12+ 或 Windows 10+。
 
 ```bash
-git clone https://github.com/GavinYangAI/comote.git
+git clone https://github.com/Gu-ZT/Comote.git
 cd comote
 npm install
 
@@ -353,7 +353,7 @@ npm test
 ```bash
 # macOS（必须在 macOS 上跑）
 npm run dist:mac
-# 产物：release/mac/Comote-x.y.z.dmg
+# 产物：release/mac/GugleComote-x.y.z.dmg
 
 # Windows（必须在 Windows 上跑 —— Node sidecar + NSIS 都依赖 Windows 工具链）
 npm run dist:win
@@ -366,7 +366,7 @@ npm run dist:win
 
 **Q：数据会上传到任何服务器吗？**
 
-不会上传到 Comote 的服务器 —— Comote 根本没有自有服务器，Codex 调用也全部发生在本机。但你和 Comote 之间的 **消息本身走的是你所选
+不会上传到 GugleComote 的服务器 —— GugleComote 根本没有自有服务器，Codex 调用也全部发生在本机。但你和 GugleComote 之间的 **消息本身走的是你所选
 IM 平台的通道**（飞书 / 微信 / 钉钉 / Telegram
 各自的服务器），受该平台隐私政策约束。链路细节见上面[怎么工作的](#怎么工作的)。
 
@@ -390,11 +390,11 @@ thread 列表。
 
 **Q：能跨设备同步吗？**
 
-目前 daemon 是单机的。如果你有多台电脑，建议每台各跑一个 Comote 实例，分别绑不同的 IM 账号区分。
+目前 daemon 是单机的。如果你有多台电脑，建议每台各跑一个 GugleComote 实例，分别绑不同的 IM 账号区分。
 
 **Q：失联了会怎样？**
 
-- IM 推送服务挂了：你发的消息暂时进不来，恢复后 Comote 会记着上次读到的位置接着拉，把这期间积压的消息补回来。
+- IM 推送服务挂了：你发的消息暂时进不来，恢复后 GugleComote 会记着上次读到的位置接着拉，把这期间积压的消息补回来。
 - Codex（app-server 子进程）挂了：daemon 自动重连，期间消息排队。
 - daemon 挂了：你发的消息在 IM 服务器侧停留，daemon 起来后会拿到。
 
@@ -424,7 +424,7 @@ npm test
 
 新增 channel / connector 时同时补 README + 测试。
 
-不知道从哪开始？看看 [Issues](https://github.com/GavinYangAI/comote/issues) 上带 `good first issue` 标签的。
+不知道从哪开始？看看 [Issues](https://github.com/Gu-ZT/Comote/issues) 上带 `good first issue` 标签的。
 
 ## 协议
 
@@ -434,11 +434,12 @@ npm test
 
 ## 关于
 
-- **仓库**：<https://github.com/GavinYangAI/comote>
-- **作者**：[@GavinYangAI](https://github.com/GavinYangAI)
-- **报 Bug / 提需求**：<https://github.com/GavinYangAI/comote/issues>
+- **仓库**：<https://github.com/Gu-ZT/Comote>
+- **上游仓库**：<https://github.com/GavinYangAI/Comote>
+- **作者**：[@GavinYangAI](https://github.com/GavinYangAI)、[Gugle](https://github.com/Gu-ZT)
+- **报 Bug / 提需求**：<https://github.com/Gu-ZT/Comote/issues>
 
-Comote 的目标是让"远程使唤本机 Codex"这件事 **简单到不值得专门为它租服务器**。如果它帮到了你，欢迎 Star、提 Issue、发 PR。
+GugleComote 的目标是让"远程使唤本机 Codex"这件事 **简单到不值得专门为它租服务器**。如果它帮到了你，欢迎 Star、提 Issue、发 PR。
 
 ---
 

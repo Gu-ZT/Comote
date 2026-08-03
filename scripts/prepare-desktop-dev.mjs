@@ -14,14 +14,14 @@ export async function stopExistingDevelopmentDaemon({
   if (!daemon) return { stopped: false, pid: null };
   if (daemon.service !== "comote") {
     throw new Error(
-      `Port 16208 is occupied by a service that is not Comote. Refusing to stop its process; release the port before running desktop:dev.`,
+      `Port 16208 is occupied by a service that is not GugleComote. Refusing to stop its process; release the port before running desktop:dev.`,
     );
   }
 
   const pid = Number(daemon.pid);
   if (!Number.isSafeInteger(pid) || pid <= 0) {
     throw new Error(
-      `Port 16208 is already serving Comote ${daemon.version ?? "(unknown version)"}, but it did not report a valid pid. Quit Comote before running desktop:dev.`,
+      `Port 16208 is already serving GugleComote ${daemon.version ?? "(unknown version)"}, but it did not report a valid pid. Quit GugleComote before running desktop:dev.`,
     );
   }
 
@@ -30,7 +30,7 @@ export async function stopExistingDevelopmentDaemon({
   } catch (error) {
     if (error?.code !== "ESRCH") {
       throw new Error(
-        `Could not stop the existing Comote daemon (pid ${pid}): ${error?.message ?? error}. Quit Comote before running desktop:dev.`,
+        `Could not stop the existing GugleComote daemon (pid ${pid}): ${error?.message ?? error}. Quit GugleComote before running desktop:dev.`,
       );
     }
   }
@@ -38,14 +38,14 @@ export async function stopExistingDevelopmentDaemon({
   const attempts = Math.max(1, Math.ceil(waitMs / pollIntervalMs));
   for (let attempt = 0; attempt <= attempts; attempt += 1) {
     if (!(await isReachable(versionUrl, fetchImpl))) {
-      console.log(`Stopped existing Comote development daemon (pid ${pid})`);
+      console.log(`Stopped existing GugleComote development daemon (pid ${pid})`);
       return { stopped: true, pid };
     }
     if (attempt < attempts) await sleepImpl(pollIntervalMs);
   }
 
   throw new Error(
-    `Existing Comote daemon (pid ${pid}) did not release port 16208. Quit Comote before running desktop:dev.`,
+    `Existing GugleComote daemon (pid ${pid}) did not release port 16208. Quit GugleComote before running desktop:dev.`,
   );
 }
 
@@ -57,7 +57,7 @@ async function readDaemon(versionUrl, fetchImpl) {
     return null;
   }
   if (!response?.ok) {
-    throw new Error(`Port 16208 is occupied, but ${versionUrl} did not return a successful Comote response.`);
+    throw new Error(`Port 16208 is occupied, but ${versionUrl} did not return a successful GugleComote response.`);
   }
   try {
     return await response.json();

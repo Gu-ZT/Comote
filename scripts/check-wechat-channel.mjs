@@ -7,7 +7,7 @@ const adapter = new WeChatChannelAdapter({
   },
 });
 
-console.log("Comote WeChat channel");
+console.log("GugleComote WeChat channel");
 console.log(`  runtime: ${adapter.getStatus().runtime}`);
 console.log(`  driver: ${adapter.getStatus().driver}`);
 console.log(`  channel id: ${adapter.getStatus().channelId}`);

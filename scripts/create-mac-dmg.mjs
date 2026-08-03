@@ -15,9 +15,9 @@ const appPath = join(
   "release",
   "bundle",
   "macos",
-  "Comote.app",
+  "GugleComote.app",
 );
-const dmgPath = join(releaseDir, `Comote-${pkg.version}-arm64.dmg`);
+const dmgPath = join(releaseDir, `GugleComote-${pkg.version}-arm64.dmg`);
 
 await mkdir(releaseDir, { recursive: true });
 
@@ -26,12 +26,12 @@ await mkdir(releaseDir, { recursive: true });
 // /Applications folder icon, giving the standard installer experience.
 const stagingDir = await mkdtemp(join(tmpdir(), "comote-dmg-"));
 try {
-  await cp(appPath, join(stagingDir, "Comote.app"), { recursive: true });
+  await cp(appPath, join(stagingDir, "GugleComote.app"), { recursive: true });
   await symlink("/Applications", join(stagingDir, "Applications"));
   await execFileAsync("hdiutil", [
     "create",
     "-volname",
-    "Comote",
+    "GugleComote",
     "-srcfolder",
     stagingDir,
     "-ov",

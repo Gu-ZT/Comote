@@ -124,12 +124,12 @@ test("authorized identity is welcomed on the first message only", async () => {
 
   // First message: should prepend the onboarding card AND contain status output
   const first = await router.handleMessageAsync({ identity, text: "/status" });
-  assert.ok(first.text.includes("你已连接到 Comote"), `expected welcome card in first reply, got: ${first.text}`);
-  assert.ok(first.text.includes("Comote 状态"), `expected status output in first reply, got: ${first.text}`);
+  assert.ok(first.text.includes("你已连接到 GugleComote"), `expected welcome card in first reply, got: ${first.text}`);
+  assert.ok(first.text.includes("GugleComote 状态"), `expected status output in first reply, got: ${first.text}`);
 
   // Second message: should NOT contain the onboarding card
   const second = await router.handleMessageAsync({ identity, text: "/status" });
-  assert.ok(!second.text.includes("你已连接到 Comote"), `expected no welcome card in second reply, got: ${second.text}`);
+  assert.ok(!second.text.includes("你已连接到 GugleComote"), `expected no welcome card in second reply, got: ${second.text}`);
 });
 
 test("/file enqueues a media reply for an in-project file and rejects escape", async () => {
@@ -214,10 +214,10 @@ test("/help and /status localize to en", async () => {
   setLocale("en");
   const { router, identity } = createRouter();
   const help = await router.handleMessageAsync({ identity, text: "/help" });
-  assert.match(help.text ?? "", /Comote commands/);
+  assert.match(help.text ?? "", /GugleComote commands/);
   assert.match(help.text ?? "", /\/projects/);
   const status = await router.handleMessageAsync({ identity, text: "/status" });
-  assert.match(status.text ?? "", /Comote status/);
+  assert.match(status.text ?? "", /GugleComote status/);
   setLocale("zh");
 });
 

@@ -3,16 +3,16 @@
   <head>
     <meta charset="utf-8">
     <meta name="viewport" content="width=device-width, initial-scale=1">
-    <title>Comote</title>
+    <title>GugleComote</title>
     <link rel="stylesheet" href="/styles.css">
   </head>
   <body>
     <div class="app-frame">
       <aside class="side-nav" aria-label="主导航" data-i18n-attr="aria-label:web.nav.ariaLabel">
         <div class="side-brand">
-          <img class="brand-logo" src="/icon.png" alt="Comote">
+          <img class="brand-logo" src="/icon.png" alt="GugleComote">
           <div>
-            <h1>Comote</h1>
+            <h1>GugleComote</h1>
             <p data-i18n="web.brand.tagline">手机上的 Codex</p>
           </div>
         </div>
@@ -59,7 +59,7 @@
       <main class="main-pane">
         <header class="top-bar">
           <div>
-            <h1 class="top-title" data-i18n="web.top.title">Comote 设置</h1>
+            <h1 class="top-title" data-i18n="web.top.title">GugleComote 设置</h1>
             <p class="top-subtitle" data-i18n="web.top.subtitle">把 Codex 接到你的手机上，随时随地继续你的工作。</p>
           </div>
           <div class="top-bar-actions">
@@ -74,7 +74,7 @@
         <section id="updateNotice" class="system-notice" hidden>
           <div>
             <strong><span data-i18n="web.update.available">有新版本可用：</span><span id="updateLatestVersion"></span></strong>
-            <p id="updateCurrentLine"><span data-i18n="web.update.currentPrefix">当前版本 </span><span id="updateCurrentVersion"></span><span id="updateCurrentSuffix" data-i18n="web.update.currentSuffix">。点击下载并替换本机的 Comote。</span></p>
+            <p id="updateCurrentLine"><span data-i18n="web.update.currentPrefix">当前版本 </span><span id="updateCurrentVersion"></span><span id="updateCurrentSuffix" data-i18n="web.update.currentSuffix">。点击下载并替换本机的 GugleComote。</span></p>
             <p id="updateCommandLine" hidden><span data-i18n="web.update.runHint">在终端运行以下命令升级：</span><code id="updateCommandText"></code></p>
           </div>
           <a id="updateDownloadLink" class="secondary-button" href="#" target="_blank" rel="noopener" data-i18n="web.update.download">下载新版</a>
@@ -83,7 +83,7 @@
         <section id="codexNotice" class="system-notice" hidden>
           <div>
             <strong data-i18n="web.codexNotice.title">无法连接 Codex</strong>
-            <p data-i18n="web.codexNotice.body">Comote 需要本机的 Codex：请安装 ChatGPT 桌面应用或 Codex CLI（npm install -g @openai/codex），然后重试。</p>
+            <p data-i18n="web.codexNotice.body">GugleComote 需要本机的 Codex：请安装 ChatGPT 桌面应用或 Codex CLI（npm install -g @openai/codex），然后重试。</p>
             <p id="codexNoticeError" hidden></p>
             <p id="codexNoticeCommand" hidden><span data-i18n="web.codexNotice.commandLabel">检测到的 codex 路径：</span><code id="codexNoticeCommandText"></code></p>
           </div>
@@ -125,7 +125,7 @@
           <div class="section-heading inline-heading">
             <div>
               <h2 data-i18n="web.users.title">授权用户</h2>
-              <p data-i18n="web.users.subtitle">只有在本机确认过的微信或飞书用户可以控制 Comote。</p>
+              <p data-i18n="web.users.subtitle">只有在本机确认过的微信或飞书用户可以控制 GugleComote。</p>
             </div>
             <button id="refreshUsers" class="secondary-button refresh-button" type="button" data-i18n-attr="aria-label:web.button.refresh; title:web.button.refresh">
               <svg width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M20 11a8.1 8.1 0 0 0-15.5-2M4 4v5h5"/><path d="M4 13a8.1 8.1 0 0 0 15.5 2M20 20v-5h-5"/></svg>
@@ -268,7 +268,7 @@
               <label class="setting-toggle" for="keepDaemonAlive">
                 <span class="setting-copy">
                   <strong data-i18n="web.advanced.keepAliveLabel">从托盘退出后保持后台运行</strong>
-                  <span id="keepDaemonAliveStatus" class="setting-note" data-i18n="web.advanced.keepAliveHint">开启后，从托盘退出 Comote 仍保持本地服务在线，手机可继续连接 Codex。</span>
+                  <span id="keepDaemonAliveStatus" class="setting-note" data-i18n="web.advanced.keepAliveHint">开启后，从托盘退出 GugleComote 仍保持本地服务在线，手机可继续连接 Codex。</span>
                 </span>
                 <span class="switch-control">
                   <input id="keepDaemonAlive" type="checkbox" role="switch" data-i18n-attr="aria-label:web.advanced.keepAliveLabel" aria-label="从托盘退出后保持后台运行">
@@ -303,7 +303,7 @@
 
         <section id="about" class="section-block app-page">
           <div class="section-heading">
-            <h2 data-i18n="web.about.title">关于 Comote</h2>
+            <h2 data-i18n="web.about.title">关于 GugleComote</h2>
             <p data-i18n="web.about.subtitle">手机上的 Codex 遥控器。本地运行，端到端私密，开源 MIT。</p>
           </div>
           <div class="user-grid">
@@ -315,16 +315,17 @@
               </dl>
               <div class="actions">
                 <button id="aboutCheckUpdate" class="secondary-button" type="button" data-i18n="web.about.checkUpdate">检查更新</button>
-                <a id="aboutReleasesLink" class="secondary-button" href="https://github.com/GavinYangAI/comote/releases" target="_blank" rel="noopener" data-i18n="web.about.allReleases">查看所有版本</a>
+                <a id="aboutReleasesLink" class="secondary-button" href="https://github.com/Gu-ZT/Comote/releases" target="_blank" rel="noopener" data-i18n="web.about.allReleases">查看所有版本</a>
               </div>
             </article>
             <article class="panel">
               <h3 data-i18n="web.about.project">项目</h3>
               <dl class="kv">
-                <dt data-i18n="web.about.repo">仓库</dt><dd><a href="https://github.com/GavinYangAI/comote" target="_blank" rel="noopener">GavinYangAI/comote</a></dd>
-                <dt data-i18n="web.about.author">作者</dt><dd><a href="https://github.com/GavinYangAI" target="_blank" rel="noopener">@GavinYangAI</a></dd>
+                <dt data-i18n="web.about.repo">仓库</dt><dd><a href="https://github.com/Gu-ZT/Comote" target="_blank" rel="noopener">Gu-ZT/Comote</a></dd>
+                <dt data-i18n="web.about.upstream">上游仓库</dt><dd><a href="https://github.com/GavinYangAI/Comote" target="_blank" rel="noopener">GavinYangAI/Comote</a></dd>
+                <dt data-i18n="web.about.author">作者</dt><dd><a href="https://github.com/GavinYangAI" target="_blank" rel="noopener">@GavinYangAI</a> · <a href="https://github.com/Gu-ZT" target="_blank" rel="noopener">Gugle</a></dd>
                 <dt data-i18n="web.about.license">协议</dt><dd>MIT License</dd>
-                <dt data-i18n="web.about.reportBug">报 Bug</dt><dd><a href="https://github.com/GavinYangAI/comote/issues" target="_blank" rel="noopener" data-i18n="web.about.submitIssue">提交 Issue</a></dd>
+                <dt data-i18n="web.about.reportBug">报 Bug</dt><dd><a href="https://github.com/Gu-ZT/Comote/issues" target="_blank" rel="noopener" data-i18n="web.about.submitIssue">提交 Issue</a></dd>
               </dl>
             </article>
           </div>

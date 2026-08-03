@@ -8,10 +8,10 @@ await mkdir(releaseDir, { recursive: true });
 
 if (mode === "mac") {
   const source = await findArtifact(join(process.cwd(), "src-tauri", "target"), ".dmg");
-  await copyFile(source, join(releaseDir, `Comote-${pkg.version}-universal.dmg`));
+  await copyFile(source, join(releaseDir, `GugleComote-${pkg.version}-universal.dmg`));
 } else if (mode === "win") {
   const source = await findArtifact(join(process.cwd(), "src-tauri", "target"), ".exe");
-  await copyFile(source, join(releaseDir, `Comote-Setup-${pkg.version}-x64.exe`));
+  await copyFile(source, join(releaseDir, `GugleComote-Setup-${pkg.version}-x64.exe`));
 } else {
   throw new Error("Usage: node scripts/collect-tauri-artifacts.mjs <mac|win>");
 }

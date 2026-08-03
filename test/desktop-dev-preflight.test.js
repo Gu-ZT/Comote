@@ -52,7 +52,7 @@ test("desktop dev preflight never kills an unrelated JSON service", async () => 
       fetchImpl: async () => jsonResponse({ version: "0.7.1", pid: 4242 }),
       killImpl: () => { killed = true; },
     }),
-    /not Comote/,
+    /not GugleComote/,
   );
   assert.equal(killed, false);
 });

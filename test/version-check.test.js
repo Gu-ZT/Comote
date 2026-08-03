@@ -41,8 +41,8 @@ function jsonResponse(body, { status = 200 } = {}) {
 
 test("selectDownloadUrl picks platform+arch asset with fallback", () => {
   const assets = [
-    { name: "Comote-0.2.1-arm64.dmg", browser_download_url: "u-dmg-arm" },
-    { name: "Comote-Setup-0.2.1-x64.exe", browser_download_url: "u-exe" },
+    { name: "GugleComote-0.2.1-arm64.dmg", browser_download_url: "u-dmg-arm" },
+    { name: "GugleComote-Setup-0.2.1-x64.exe", browser_download_url: "u-exe" },
   ];
   assert.equal(selectDownloadUrl(assets, { platform: "darwin", arch: "arm64", releasesUrl: "R" }), "u-dmg-arm");
   assert.equal(selectDownloadUrl(assets, { platform: "win32", arch: "x64", releasesUrl: "R" }), "u-exe");
@@ -53,10 +53,10 @@ test("checkNow exposes a platform-specific downloadUrl from release assets", asy
   const fetchImpl = makeFetch(
     jsonResponse({
       tag_name: "v0.3.0",
-      html_url: "https://github.com/GavinYangAI/comote/releases/tag/v0.3.0",
+      html_url: "https://github.com/Gu-ZT/Comote/releases/tag/v0.3.0",
       assets: [
-        { name: "Comote-0.3.0-arm64.dmg", browser_download_url: "u-dmg-arm" },
-        { name: "Comote-Setup-0.3.0-x64.exe", browser_download_url: "u-exe" },
+        { name: "GugleComote-0.3.0-arm64.dmg", browser_download_url: "u-dmg-arm" },
+        { name: "GugleComote-Setup-0.3.0-x64.exe", browser_download_url: "u-exe" },
       ],
     }),
   );
@@ -97,10 +97,10 @@ test("checkNow on Linux carries updateCommand and a null downloadUrl", async () 
   const fetchImpl = makeFetch(
     jsonResponse({
       tag_name: "v0.3.0",
-      html_url: "https://github.com/GavinYangAI/comote/releases/tag/v0.3.0",
+      html_url: "https://github.com/Gu-ZT/Comote/releases/tag/v0.3.0",
       // Even if a release somehow carried assets, Linux installs come from npm,
       // so we never offer a download link on Linux.
-      assets: [{ name: "Comote-0.3.0.AppImage", browser_download_url: "u-appimage" }],
+      assets: [{ name: "GugleComote-0.3.0.AppImage", browser_download_url: "u-appimage" }],
     }),
   );
   const checker = new VersionChecker({
@@ -172,8 +172,8 @@ test("detectInstallSource: desktop bundle resource paths → desktop (even with 
   // macOS app bundle: the sidecar's entry lives under Contents/Resources.
   assert.equal(
     detectInstallSource({
-      argv1: "/Applications/Comote.app/Contents/Resources/comote-server/src/server/index.js",
-      modulePath: "/Applications/Comote.app/Contents/Resources/comote-server/node_modules/x/index.js",
+      argv1: "/Applications/GugleComote.app/Contents/Resources/comote-server/src/server/index.js",
+      modulePath: "/Applications/GugleComote.app/Contents/Resources/comote-server/node_modules/x/index.js",
       env: {},
       platform: "darwin",
       realpath: (p) => p,
@@ -183,7 +183,7 @@ test("detectInstallSource: desktop bundle resource paths → desktop (even with 
   // Windows resource dir: resources\comote-server\…
   assert.equal(
     detectInstallSource({
-      argv1: "C:\\Program Files\\Comote\\resources\\comote-server\\src\\server\\index.js",
+      argv1: "C:\\Program Files\\GugleComote\\resources\\comote-server\\src\\server\\index.js",
       modulePath: null,
       env: {},
       platform: "win32",
@@ -216,7 +216,7 @@ test("checkNow with installSource npm on macOS gives the npm command, no downloa
     jsonResponse({
       tag_name: "v0.3.0",
       html_url: "https://example.com/release",
-      assets: [{ name: "Comote-0.3.0-arm64.dmg", browser_download_url: "u-dmg" }],
+      assets: [{ name: "GugleComote-0.3.0-arm64.dmg", browser_download_url: "u-dmg" }],
     }),
   );
   const checker = new VersionChecker({
@@ -241,7 +241,7 @@ test("non-Linux platforms leave updateCommand null and keep the download link", 
     jsonResponse({
       tag_name: "v0.3.0",
       html_url: "https://example.com/release",
-      assets: [{ name: "Comote-0.3.0-arm64.dmg", browser_download_url: "u-dmg" }],
+      assets: [{ name: "GugleComote-0.3.0-arm64.dmg", browser_download_url: "u-dmg" }],
     }),
   );
   const checker = new VersionChecker({
@@ -270,7 +270,7 @@ test("checkNow flags an update when GitHub returns a newer release", async () =>
   const fetchImpl = makeFetch(
     jsonResponse({
       tag_name: "v0.3.0",
-      html_url: "https://github.com/GavinYangAI/comote/releases/tag/v0.3.0",
+      html_url: "https://github.com/Gu-ZT/Comote/releases/tag/v0.3.0",
       body: "new things",
     }),
   );
@@ -285,7 +285,7 @@ test("checkNow flags an update when GitHub returns a newer release", async () =>
   assert.equal(result.current, "0.2.0");
   assert.equal(result.latest, "0.3.0");
   assert.equal(result.hasUpdate, true);
-  assert.equal(result.releaseUrl, "https://github.com/GavinYangAI/comote/releases/tag/v0.3.0");
+  assert.equal(result.releaseUrl, "https://github.com/Gu-ZT/Comote/releases/tag/v0.3.0");
   assert.equal(result.checkedAt, 1000);
   assert.equal(result.error, null);
 });

@@ -23,7 +23,7 @@ const DEFAULT_PORT = 16208;
 // commands) falls back to a config-only read of state.json.
 export class DaemonUnreachable extends Error {
   constructor(baseUrl, cause) {
-    super(`Comote daemon not running on ${baseUrl}. Start it with \`comote\`.`);
+    super(`GugleComote daemon not running on ${baseUrl}. Start it with \`comote\`.`);
     this.name = "DaemonUnreachable";
     this.baseUrl = baseUrl;
     this.code = "DAEMON_UNREACHABLE";

@@ -1,12 +1,12 @@
 # WeChat Channel
 
-Comote owns the WeChat channel runtime boundary. The user should run Comote next to Codex Desktop; they should not install a separate agent host just to make phone control work.
+GugleComote owns the WeChat channel runtime boundary. The user should run GugleComote next to Codex Desktop; they should not install a separate agent host just to make phone control work.
 
 The current implementation has two layers:
 
-- `WeChatChannelAdapter` normalizes mobile WeChat messages into Comote command messages and enforces local identity authorization.
-- `WeChatIlinkDriver` is the Comote-owned driver boundary for Tencent mobile WeChat bot/iLink-style JSON APIs: `get_bot_qrcode`, `get_qrcode_status`, `getupdates`, `sendmessage`, and `sendtyping`.
-- `WeChatRuntimeService` polls inbound updates, routes them through Comote, delivers queued outbound replies, and retries failed sends.
+- `WeChatChannelAdapter` normalizes mobile WeChat messages into GugleComote command messages and enforces local identity authorization.
+- `WeChatIlinkDriver` is the GugleComote-owned driver boundary for Tencent mobile WeChat bot/iLink-style JSON APIs: `get_bot_qrcode`, `get_qrcode_status`, `getupdates`, `sendmessage`, and `sendtyping`.
+- `WeChatRuntimeService` polls inbound updates, routes them through GugleComote, delivers queued outbound replies, and retries failed sends.
 
 Runtime check:
 
@@ -14,7 +14,7 @@ Runtime check:
 npm run wechat:check
 ```
 
-Comote accepts normalized inbound messages at:
+GugleComote accepts normalized inbound messages at:
 
 ```text
 POST /api/channels/wechat/inbound
@@ -40,7 +40,7 @@ Minimum payload:
 }
 ```
 
-The stable Comote identity is:
+The stable GugleComote identity is:
 
 ```text
 wechat:<accountId>:<peer.id>
@@ -72,7 +72,7 @@ POST /api/channels/wechat/login/start
 GET  /api/channels/wechat/login/status?loginId=<id>
 ```
 
-The login endpoints call the Comote WeChat driver. They expose QR login state through the Tencent iLink gateway; they do not depend on a third-party agent host and do not ask the user for URL or token fields.
+The login endpoints call the GugleComote WeChat driver. They expose QR login state through the Tencent iLink gateway; they do not depend on a third-party agent host and do not ask the user for URL or token fields.
 
 Optional account hint:
 
@@ -81,4 +81,4 @@ COMOTE_WECHAT_ACCOUNT_ID=wx_account_1
 npm run wechat:check
 ```
 
-The user does not provide a WeChat API URL or token. Comote uses the default Tencent iLink gateway, starts a QR login session, and stores the returned bot token locally after scan confirmation.
+The user does not provide a WeChat API URL or token. GugleComote uses the default Tencent iLink gateway, starts a QR login session, and stores the returned bot token locally after scan confirmation.

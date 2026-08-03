@@ -1,5 +1,5 @@
 ; Older Windows builds launch comote-node.exe outside Tauri's managed process
-; tree. An installer can therefore terminate Comote.exe while the sidecar still
+; tree. An installer can therefore terminate GugleComote.exe while the sidecar still
 ; holds its executable open. Stop all shipped sidecar names before replacing or
 ; removing files. /T also releases descendants such as the Codex app-server.
 !macro ComoteStopSidecars

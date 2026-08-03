@@ -2,24 +2,24 @@
 
 <img src=".idea/icon.png" width="256" height="256" alt="Icon" />
 
-# Comote
+# GugleComote
 
-**A remote control for Codex, in your pocket · Runs locally · No Comote servers in the loop**
+**A remote control for Codex, in your pocket · Runs locally · No GugleComote servers in the loop**
 
 Connect the [Codex](https://openai.com/codex) on your computer (the ChatGPT desktop app, formerly Codex Desktop; or the
 Codex CLI) to Feishu / WeChat / DingTalk / Telegram, so you can keep directing your Codex agent from the subway, from a
 client's office, from bed at midnight — without exposing your machine to the public internet, renting a server, or
 installing a pile of middleware.
 
-[中文](./README.md) · [Quick Start](#quick-start) · [FAQ](#faq) · [Repo](https://github.com/GavinYangAI/comote)
+[中文](./README.md) · [Quick Start](#quick-start) · [FAQ](#faq) · [Repo](https://github.com/Gu-ZT/Comote)
 
 </div>
 
 ---
 
-## What is Comote
+## What is GugleComote
 
-Whether you use Codex to write code or to crunch data, organize documents, run research, and draft — Comote is the same
+Whether you use Codex to write code or to crunch data, organize documents, run research, and draft — GugleComote is the same
 phone remote for all of it. It's built for **anyone running Codex locally** (whether via the ChatGPT desktop app or the
 Codex CLI), not just programmers.
 
@@ -36,11 +36,11 @@ computer:
 >
 `Start a new thread — transcribe that batch of client-interview recordings in downloads and turn them into a timestamped minutes table`
 
-By the time you're done and back at your desk, that tidy minutes table is already waiting for you in the desktop Comote.
+By the time you're done and back at your desk, that tidy minutes table is already waiting for you in the desktop GugleComote.
 
-### Why Comote
+### Why GugleComote
 
-| Scenario                                      | The usual way                | Comote                                         |
+| Scenario                                      | The usual way                | GugleComote                                    |
 |-----------------------------------------------|------------------------------|------------------------------------------------|
 | Remotely drive your local Codex               | SSH + tmux + typing commands | Send one message in Feishu                     |
 | Approve Codex's risky operations from your IM | Not possible                 | Tap a button on a card                         |
@@ -62,7 +62,7 @@ By the time you're done and back at your desk, that tidy minutes table is alread
 
 > **About the official Codex mobile app**: OpenAI ships its own ChatGPT/Codex mobile clients, but they only serve
 > ChatGPT subscribers — people running local Codex (CLI or desktop app) with an API key can't use them, because the app
-> simply can't see your local threads. Comote is for exactly those users: your Codex runs on your computer, on your own
+> simply can't see your local threads. GugleComote is for exactly those users: your Codex runs on your computer, on your own
 > key, and the phone is just a remote. The day the official app supports API users remotely controlling local Codex, we'll
 > retire.
 
@@ -111,15 +111,15 @@ You need Codex on this machine — either one:
 
 And you need to be signed in: sign in inside the desktop app, or run `codex login` once.
 
-Comote talks to Codex through `codex app-server` (stdio JSON-RPC) and launches it as a child process automatically —
+GugleComote talks to Codex through `codex app-server` (stdio JSON-RPC) and launches it as a child process automatically —
 **no Codex window needs to stay open**.
 
 ### 1. Download and install
 
-**Desktop app** (with GUI) — grab the latest build from [Releases](https://github.com/GavinYangAI/comote/releases):
+**Desktop app** (with GUI) — grab the latest build from [Releases](https://github.com/Gu-ZT/Comote/releases):
 
-- macOS: `Comote-x.y.z.dmg`
-- Windows: `Comote-x.y.z-setup.exe`
+- macOS: `GugleComote-x.y.z.dmg`
+- Windows: `GugleComote-x.y.z-setup.exe`
 
 **npm** (command-line, cross-platform, incl. Linux):
 
@@ -132,7 +132,7 @@ also [build from source](#build-from-source).
 
 ### 2. Bind an IM
 
-Open Comote and bind a channel from the Web settings page (you can bind several). The four channels fall into two
+Open GugleComote and bind a channel from the Web settings page (you can bind several). The four channels fall into two
 binding styles:
 
 **Scan style (Feishu / WeChat) — confirm the identity on the desktop**
@@ -153,7 +153,7 @@ binding styles:
 
 **Only a bound / confirmed identity can control Codex.**
 
-- Feishu / WeChat: on your first message, Comote pops a "pending authorization" card in the desktop UI — click
+- Feishu / WeChat: on your first message, GugleComote pops a "pending authorization" card in the desktop UI — click
   "Confirm".
 - Telegram: sending the pairing code completes the binding; no extra desktop confirmation needed.
 - DingTalk: bound as the user who sent the message.
@@ -181,7 +181,7 @@ WeChat / Feishu / DingTalk / Telegram bot
          │
          ▼ long connection / push
 ┌──────────────────────────┐
-│  Comote daemon (local)   │
+│  GugleComote daemon (local)   │
 │  ├─ Channel Adapter      │  ← normalizes platform messages
 │  ├─ Auth / command route │
 │  ├─ Project / Session    │
@@ -194,11 +194,11 @@ WeChat / Feishu / DingTalk / Telegram bot
 The desktop side is wrapped with [Tauri](https://tauri.app/); the Node daemon launches as a sidecar and listens only on
 the loopback address.
 
-**Local-first, stated honestly**: Comote runs no servers of its own — your messages never pass through any
-Comote-operated server, and every Codex call happens on your machine (the daemon talks directly to its local
+**Local-first, stated honestly**: GugleComote runs no servers of its own — your messages never pass through any
+GugleComote-operated server, and every Codex call happens on your machine (the daemon talks directly to its local
 `codex app-server` child process and binds only to `127.0.0.1`; authorizations, tokens, and session history stay local —
 see [Where your data lives](#where-your-data-lives)). To be clear about the one hop that isn't local: messages between
-you and Comote **do travel through the servers of the IM platform you chose** (Feishu over a WebSocket long connection,
+you and GugleComote **do travel through the servers of the IM platform you chose** (Feishu over a WebSocket long connection,
 DingTalk over a Stream long connection, WeChat over iLink getupdates polling, Telegram over getUpdates long polling),
 and that leg is governed by that platform's privacy policy.
 
@@ -206,7 +206,7 @@ and that leg is governed by that platform's privacy policy.
 
 ### The three configuration layers
 
-Comote's configuration splits into three layers, each with its own job:
+GugleComote's configuration splits into three layers, each with its own job:
 
 | Layer                     | Owns                                                                                            | Written by                                              | Typical use                |
 |---------------------------|-------------------------------------------------------------------------------------------------|---------------------------------------------------------|----------------------------|
@@ -281,7 +281,7 @@ Logs live in two places:
     - Windows: `comote-launch.log`, `comote-node.stdout.log`, and `comote-node.stderr.log` under
       `%APPDATA%\dev.comote.desktop\`
     - Read the tail with `comote logs --file` (default 200 lines, `--lines N` to adjust) — no daemon required. When
-      Comote runs via npm/CLI these files simply don't exist; that's normal.
+      GugleComote runs via npm/CLI these files simply don't exist; that's normal.
 
 To upgrade: `comote update` checks and prints the right upgrade path (npm install → `npm install -g comote@latest`, on
 every platform; desktop App → a download link) — it never runs the upgrade for you.
@@ -289,17 +289,17 @@ every platform; desktop App → a download link) — it never runs the upgrade f
 ## Linux / headless VPS
 
 <details>
-<summary>Want to run Comote on a headless Linux VPS with no monitor and no desktop environment? You can — there's a pure command-line headless daemon that needs no GUI / webkit.</summary>
+<summary>Want to run GugleComote on a headless Linux VPS with no monitor and no desktop environment? You can — there's a pure command-line headless daemon that needs no GUI / webkit.</summary>
 
 **What it is** — the full app-server connector (threads, streaming, exec / applyPatch approvals) works exactly the same,
-because Comote talks to `codex app-server` (a subcommand of codex), **not** to any GUI (such as the ChatGPT desktop
+because GugleComote talks to `codex app-server` (a subcommand of codex), **not** to any GUI (such as the ChatGPT desktop
 app). So no desktop environment is required.
 
 **Prerequisites**
 
 - Install the **Codex CLI** and make sure `codex` is on PATH.
 - ⚠️ **Run `codex login` first** — this is the #1 first-run gotcha. On a no-browser VPS, complete login with
-  **device-auth or an API key**. **Without it the app-server won't start, and Comote can't reach Codex.**
+  **device-auth or an API key**. **Without it the app-server won't start, and GugleComote can't reach Codex.**
 
 **Install**
 
@@ -326,7 +326,7 @@ journalctl -u comote -f                # follow the logs
 > runs it as a dedicated `comote` user, log in as that user first (`sudo -u comote codex login`), or the app-server can't
 > read the credentials and won't connect.
 
-Comote **launches `codex app-server` as a child process and connects automatically** on startup — there's no separate
+GugleComote **launches `codex app-server` as a child process and connects automatically** on startup — there's no separate
 Codex app to open or keep running on Linux. For a quick try you can also run `comote` in the foreground (but it stops
 when you close the terminal / reboot).
 
@@ -362,7 +362,7 @@ npm i -g comote@latest   # then restart the service: systemctl restart comote
 
 There's no in-app auto-download on Linux — upgrade manually.
 
-**A note** — Comote is certified against a recent codex version. The app-server protocol has changed before, so if
+**A note** — GugleComote is certified against a recent codex version. The app-server protocol has changed before, so if
 something breaks after an upgrade, pin codex back to a known-good version first and then debug.
 
 </details>
@@ -372,7 +372,7 @@ something breaks after an upgrade, pin codex back to a known-good version first 
 Requirements: Node.js ≥ 22, Rust (needed by Tauri), macOS 12+ or Windows 10+.
 
 ```bash
-git clone https://github.com/GavinYangAI/comote.git
+git clone https://github.com/Gu-ZT/Comote.git
 cd comote
 npm install
 
@@ -391,7 +391,7 @@ Packaging:
 ```bash
 # macOS (must run on macOS)
 npm run dist:mac
-# output: release/mac/Comote-x.y.z.dmg
+# output: release/mac/GugleComote-x.y.z.dmg
 
 # Windows (must run on Windows — Node sidecar + NSIS both need the Windows toolchain)
 npm run dist:win
@@ -404,7 +404,7 @@ You can also let GitHub Actions do it (the `windows-latest` runner) — see `.gi
 
 **Q: Does any data get uploaded to a server?**
 
-Not to any Comote server — Comote doesn't operate one, and every Codex call happens on your machine. But the **messages
+Not to any GugleComote server — GugleComote doesn't operate one, and every Codex call happens on your machine. But the **messages
 themselves travel through the IM platform you chose** (Feishu / WeChat / DingTalk / Telegram run their own servers),
 governed by that platform's privacy policy. See [How it works](#how-it-works) above for the chain details.
 
@@ -430,12 +430,12 @@ roughly 200–400 lines of code; a Discord adapter is already on the roadmap. PR
 
 **Q: Can it sync across devices?**
 
-The daemon is single-machine for now. If you have several computers, run a separate Comote instance on each and bind
+The daemon is single-machine for now. If you have several computers, run a separate GugleComote instance on each and bind
 different IM accounts to tell them apart.
 
 **Q: What happens if the connection drops?**
 
-- IM push service goes down: your messages can't come in for a while; once it recovers, Comote remembers where it last
+- IM push service goes down: your messages can't come in for a while; once it recovers, GugleComote remembers where it last
   read and picks up from there, backfilling whatever piled up in the meantime.
 - Codex (the app-server child process) crashes: the daemon reconnects automatically and messages queue in the meantime.
 - The daemon goes down: your messages stay on the IM server side and the daemon picks them up once it's back.
@@ -467,7 +467,7 @@ npm test
 When adding a channel / connector, include a README + tests.
 
 Not sure where to start? Look for the `good first issue` label
-on [Issues](https://github.com/GavinYangAI/comote/issues).
+on [Issues](https://github.com/Gu-ZT/Comote/issues).
 
 ## License
 
@@ -478,11 +478,12 @@ integrations yourself.
 
 ## About
 
-- **Repo**: <https://github.com/GavinYangAI/comote>
-- **Author**: [@GavinYangAI](https://github.com/GavinYangAI)
-- **Bugs / requests**: <https://github.com/GavinYangAI/comote/issues>
+- **Repo**: <https://github.com/Gu-ZT/Comote>
+- **Upstream repo**: <https://github.com/GavinYangAI/Comote>
+- **Author**: [@GavinYangAI](https://github.com/GavinYangAI), [Gugle](https://github.com/Gu-ZT)
+- **Bugs / requests**: <https://github.com/Gu-ZT/Comote/issues>
 
-Comote's goal is to make "remotely driving your local Codex" **so simple it isn't worth renting a server for**. If it
+GugleComote's goal is to make "remotely driving your local Codex" **so simple it isn't worth renting a server for**. If it
 helps you, a Star, an Issue, or a PR is always welcome.
 
 ---

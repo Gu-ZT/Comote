@@ -9,14 +9,14 @@ const execFileAsync = promisify(execFile);
 const pkg = JSON.parse(await readFile(join(process.cwd(), "package.json"), "utf8"));
 const version = pkg.version;
 
-const appRoot = join(process.cwd(), "dist", "Comote.app");
+const appRoot = join(process.cwd(), "dist", "GugleComote.app");
 const contents = join(appRoot, "Contents");
 const macos = join(contents, "MacOS");
 const resources = join(contents, "Resources");
 const buildDir = join(process.cwd(), "dist", "build");
 const iconsDir = join(process.cwd(), "src-tauri", "icons");
-const executablePath = join(macos, "Comote");
-const swiftPath = join(buildDir, "ComoteApp.swift");
+const executablePath = join(macos, "GugleComote");
+const swiftPath = join(buildDir, "GugleComoteApp.swift");
 
 await rm(appRoot, { recursive: true, force: true });
 await mkdir(macos, { recursive: true });
@@ -33,13 +33,13 @@ await writeFile(
 <plist version="1.0">
 <dict>
   <key>CFBundleExecutable</key>
-  <string>Comote</string>
+  <string>GugleComote</string>
   <key>CFBundleIdentifier</key>
   <string>dev.comote.app</string>
   <key>CFBundleName</key>
-  <string>Comote</string>
+  <string>GugleComote</string>
   <key>CFBundleDisplayName</key>
-  <string>Comote</string>
+  <string>GugleComote</string>
   <key>CFBundleIconFile</key>
   <string>AppIcon</string>
   <key>CFBundlePackageType</key>
@@ -93,7 +93,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
             defer: false
         )
         window.center()
-        window.title = "Comote"
+        window.title = "GugleComote"
         window.minSize = NSSize(width: 860, height: 620)
         window.contentView = webView
         window.makeKeyAndOrderFront(nil)
@@ -135,7 +135,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
             try process.run()
             serverProcess = process
         } catch {
-            showStartupError("Could not start Comote service: \\(error.localizedDescription)")
+            showStartupError("Could not start GugleComote service: \\(error.localizedDescription)")
         }
     }
 
@@ -146,7 +146,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         }
 
         if attempt > 80 {
-            showStartupError("Comote service did not start. Check .comote/logs/comote-app.log in the project folder.")
+            showStartupError("GugleComote service did not start. Check .comote/logs/comote-app.log in the project folder.")
             return
         }
 
@@ -171,7 +171,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, WKNavigationDelegate {
         section{max-width:560px;padding:32px;border:1px solid #d8d4c8;border-radius:14px;background:white}
         h1{margin:0 0 12px;font-size:24px} p{line-height:1.5;color:#5f665f}
         </style>
-        <section><h1>Comote could not open</h1><p>\\(message)</p></section>
+        <section><h1>GugleComote could not open</h1><p>\\(message)</p></section>
         """
         webView.loadHTMLString(html, baseURL: nil)
     }

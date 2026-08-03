@@ -1753,7 +1753,7 @@ document.querySelector("#threads").addEventListener("click", async (event) => {
     return;
   }
   // E-4: transcripts served from the connector's thread/read fallback (rather
-  // than Comote's own relay transcript) get a small origin annotation.
+  // than GugleComote's own relay transcript) get a small origin annotation.
   const sourceNote = firstResult.value.source === "desktop"
     ? `<div class="meta thread-source">${tWeb("web.threads.sourceDesktop")}</div>`
     : "";
@@ -1944,7 +1944,7 @@ async function refreshVersionStatus() {
         if (commandLine) commandLine.hidden = true;
         if (linkEl) {
           linkEl.hidden = false;
-          linkEl.href = data.downloadUrl ?? data.releaseUrl ?? "https://github.com/GavinYangAI/comote/releases";
+          linkEl.href = data.downloadUrl ?? data.releaseUrl ?? "https://github.com/Gu-ZT/Comote/releases";
         }
         if (suffixEl) suffixEl.textContent = tWeb("web.update.currentSuffix");
       }

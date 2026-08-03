@@ -918,7 +918,7 @@ export class CommandRouter {
     const projectPath = this.requireCurrentProject(identity);
     const session = this.sessions.createSession({
       projectPath,
-      title: message || "New Comote session",
+      title: message || "New GugleComote session",
       firstMessage: message,
       identityKey: this.identityKey(identity),
       connector: this.connectorForNextSession(),

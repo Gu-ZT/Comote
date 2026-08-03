@@ -73,7 +73,7 @@ export async function run({
     write(`  ${result.updateCommand ?? NPM_UPDATE_COMMAND}\n`);
     write("then restart the daemon (e.g. `systemctl restart comote` under systemd).\n");
   } else {
-    const link = result.downloadUrl ?? result.releaseUrl ?? "https://github.com/GavinYangAI/comote/releases";
+    const link = result.downloadUrl ?? result.releaseUrl ?? "https://github.com/Gu-ZT/Comote/releases";
     write("Download the new desktop build:\n");
     write(`  ${link}\n`);
   }

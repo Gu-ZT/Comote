@@ -10,7 +10,7 @@ const host = process.env.HOST ?? "127.0.0.1";
 try {
   assertSafeBind({ host, hasToken: Boolean(process.env.COMOTE_LOCAL_API_TOKEN) });
 } catch (error) {
-  console.error(`Comote daemon refusing to start:\n${error.message}`);
+  console.error(`GugleComote daemon refusing to start:\n${error.message}`);
   process.exit(1);
 }
 
@@ -28,32 +28,32 @@ process.on("unhandledRejection", (reason) => {
   try {
     state.eventLog?.error?.("未捕获的 Promise 拒绝", { error: message });
   } catch {
-    console.error("Comote daemon: unhandled rejection:", message);
+    console.error("GugleComote daemon: unhandled rejection:", message);
   }
 });
 process.on("uncaughtException", (error) => {
   try {
     state.eventLog?.error?.("未捕获的异常", { error: error?.message ?? String(error) });
   } catch {
-    console.error("Comote daemon: uncaught exception:", error);
+    console.error("GugleComote daemon: uncaught exception:", error);
   }
 });
 
 server.on("error", (error) => {
   if (error.code === "EADDRINUSE") {
     console.error(
-      `Comote daemon: port ${port} is already in use.\n` +
-        `Another Comote instance is probably already running at http://${host}:${port}.\n` +
+      `GugleComote daemon: port ${port} is already in use.\n` +
+        `Another GugleComote instance is probably already running at http://${host}:${port}.\n` +
         `Open that one, or set PORT to a free port and retry.`,
     );
     process.exit(1);
   }
-  console.error(`Comote daemon failed to start: ${error.message}`);
+  console.error(`GugleComote daemon failed to start: ${error.message}`);
   process.exit(1);
 });
 
 server.listen(port, host, () => {
-  console.log(`Comote settings app running at http://${host}:${port}`);
+  console.log(`GugleComote settings app running at http://${host}:${port}`);
   // Connect the Codex app-server on startup. The web UI triggers this on load,
   // but a headless daemon (systemd on a VPS) has no UI — without this it stays
   // disconnected until something POSTs /auto-connect. Best-effort: codex may be

@@ -39,7 +39,7 @@ export function resolveStatePath({
   const legacy = resolve(cwd(), LEGACY_STATE_RELATIVE_PATH);
   if (legacy !== preferred && !exists(preferred) && exists(legacy)) {
     logger?.warn?.(
-      `Comote: using legacy state file at ${legacy} (older releases defaulted to a CWD-relative path). ` +
+      `GugleComote: using legacy state file at ${legacy} (older releases defaulted to a CWD-relative path). ` +
         `New installs use ${preferred}; set COMOTE_STATE_PATH or pass --state-path to choose explicitly.`,
     );
     return { path: legacy, source: "legacy" };

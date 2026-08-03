@@ -1,8 +1,8 @@
 [package]
 name = "comote"
-version = "0.8.0"
-description = "Comote local remote companion for Codex Desktop."
-authors = ["Comote"]
+version = "0.8.1"
+description = "GugleComote local remote companion for Codex Desktop."
+authors = ["Comote", "Gugle"]
 edition = "2021"
 
 [build-dependencies]

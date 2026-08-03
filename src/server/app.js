@@ -49,7 +49,7 @@ async function handleApi(request, response, state) {
 
   if (request.method === "GET" && url.pathname === "/api/status") {
     sendJson(response, 200, {
-      appName: "Comote",
+      appName: "GugleComote",
       bridge: "running",
       channels: state.registry
         ? Object.fromEntries(

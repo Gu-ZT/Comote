@@ -1,17 +1,17 @@
 {
   "name": "comote",
-  "version": "0.8.0",
+  "version": "0.8.1",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/GavinYangAI/Comote.git"
+    "url": "git+https://github.com/Gu-ZT/Comote.git"
   },
-  "homepage": "https://github.com/GavinYangAI/Comote#readme",
+  "homepage": "https://github.com/Gu-ZT/Comote#readme",
   "bugs": {
-    "url": "https://github.com/GavinYangAI/Comote/issues"
+    "url": "https://github.com/Gu-ZT/Comote/issues"
   },
   "private": false,
   "type": "module",
-  "description": "Comote local remote companion for Codex Desktop.",
+  "description": "GugleComote local remote companion for Codex Desktop.",
   "bin": {
     "comote": "bin/comote.js"
   },

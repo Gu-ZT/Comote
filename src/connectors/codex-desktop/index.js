@@ -463,7 +463,7 @@ export class CodexDesktopConnector {
       result = await this.client.request("initialize", {
         clientInfo: {
           name: "comote",
-          title: "Comote",
+          title: "GugleComote",
           version: COMOTE_VERSION,
         },
         capabilities: {

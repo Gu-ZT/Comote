@@ -905,7 +905,7 @@ test("the first authorized message prepends a short onboarding card, not the ful
   const first = await router.handleMessageAsync({ identity, text: "/status" });
 
   // Welcome card surfaces the high-value commands + how to talk...
-  assert.match(first.text, /你已连接到 Comote/);
+  assert.match(first.text, /你已连接到 GugleComote/);
   assert.match(first.text, /\/projects/);
   assert.match(first.text, /\/help/);
   assert.match(first.text, /直接发消息/);
@@ -913,5 +913,5 @@ test("the first authorized message prepends a short onboarding card, not the ful
   assert.ok(!first.text.includes("/approve"), "onboarding card must stay short, not the full catalog");
   // And it only fires once.
   const second = await router.handleMessageAsync({ identity, text: "/status" });
-  assert.ok(!second.text.includes("你已连接到 Comote"), "onboarding card must fire only once");
+  assert.ok(!second.text.includes("你已连接到 GugleComote"), "onboarding card must fire only once");
 });

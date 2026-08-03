@@ -91,7 +91,7 @@ test("desktop connector initializes through app-server JSON-RPC", async () => {
     params: {
       clientInfo: {
         name: "comote",
-        title: "Comote",
+        title: "GugleComote",
         // Connector reads from package.json; assert against whatever is on disk now.
         version: JSON.parse(readFileSync("package.json", "utf8")).version,
       },

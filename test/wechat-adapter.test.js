@@ -129,14 +129,14 @@ test("routes authorized WeChat direct messages and sends text replies", async ()
   // The first reply is the /open result with the onboarding card prepended.
   const firstSent = sent[0];
   assert.equal(firstSent.conversationId, "dm_wxid_owner");
-  assert.ok(firstSent.text.includes("你已连接到 Comote"), `expected onboarding card in first reply`);
+  assert.ok(firstSent.text.includes("你已连接到 GugleComote"), `expected onboarding card in first reply`);
   assert.ok(firstSent.text.includes("已进入 comote"), `expected /open output in first reply`);
   // The second reply is the /status result without the card.
   const secondSent = sent[1];
   assert.equal(secondSent.conversationId, "dm_wxid_owner");
-  assert.ok(!secondSent.text.includes("你已连接到 Comote"), `expected no card in second reply`);
+  assert.ok(!secondSent.text.includes("你已连接到 GugleComote"), `expected no card in second reply`);
   assert.ok(
-    secondSent.text.includes("Comote 状态"),
+    secondSent.text.includes("GugleComote 状态"),
     `expected status text in second reply, got: ${secondSent.text}`,
   );
 });

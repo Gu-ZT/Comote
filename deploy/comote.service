@@ -1,6 +1,6 @@
-# Comote headless daemon — systemd unit template.
+# GugleComote headless daemon — systemd unit template.
 #
-# Runs the Comote daemon on a VPS with no GUI. It binds 127.0.0.1:16208 by
+# Runs the GugleComote daemon on a VPS with no GUI. It binds 127.0.0.1:16208 by
 # default and talks to a `codex app-server` child process, so the full
 # IM<->Codex bridge (threads, streaming, exec/applyPatch approvals) works
 # without any desktop GUI.
@@ -21,8 +21,8 @@
 #   4. Tail logs:  journalctl -u comote -f
 
 [Unit]
-Description=Comote headless daemon (IM <-> Codex bridge)
-Documentation=https://github.com/GavinYangAI/comote
+Description=GugleComote headless daemon (IM <-> Codex bridge)
+Documentation=https://github.com/Gu-ZT/Comote
 After=network-online.target
 Wants=network-online.target
 

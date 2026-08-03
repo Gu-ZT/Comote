@@ -1,6 +1,6 @@
 # Feishu Channel
 
-The Feishu channel uses the same Comote command and authorization model as WeChat.
+The Feishu channel uses the same GugleComote command and authorization model as WeChat.
 
 Current status:
 
@@ -14,7 +14,7 @@ Current status:
   card buttons, handled via the `card.action.trigger` callback.
 - Provides `FeishuDriver` for QR app registration, tenant token retrieval,
   WebSocket event streaming, and text/card delivery through Feishu OpenAPI.
-- Provides a Comote runtime that starts/stops Feishu WebSocket monitoring,
+- Provides a GugleComote runtime that starts/stops Feishu WebSocket monitoring,
   routes inbound events and card actions through the shared command router,
   and delivers queued replies back to Feishu.
 - Stores Feishu app configuration beside the WeChat channel configuration.
@@ -36,9 +36,9 @@ GET  /api/channels/feishu/login/status
 POST /api/channels/feishu/inbound
 ```
 
-To enable Feishu, click "绑定飞书" in the Comote settings UI and scan the QR code with the Feishu mobile app. The QR app-registration flow returns an app id and app secret, stores them locally, and starts the WebSocket runtime automatically.
+To enable Feishu, click "绑定飞书" in the GugleComote settings UI and scan the QR code with the Feishu mobile app. The QR app-registration flow returns an app id and app secret, stores them locally, and starts the WebSocket runtime automatically.
 
-The `/api/channels/feishu/inbound` webhook path remains for diagnostics and compatibility, but normal Comote operation uses WebSocket, so no public callback URL is required.
+The `/api/channels/feishu/inbound` webhook path remains for diagnostics and compatibility, but normal GugleComote operation uses WebSocket, so no public callback URL is required.
 
 ## 媒体收发（图片/文件）
 

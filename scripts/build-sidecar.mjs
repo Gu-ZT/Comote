@@ -33,7 +33,7 @@ async function main() {
     throw new Error(`Unknown sidecar target: ${mode}`);
   }
 
-  console.log(`Prepared Comote sidecar for ${mode}`);
+  console.log(`Prepared GugleComote sidecar for ${mode}`);
 }
 
 async function buildMacUniversalNode() {

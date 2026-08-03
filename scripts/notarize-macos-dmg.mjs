@@ -1,6 +1,6 @@
 // Notarizes and staples the built DMG using an App Store Connect API key.
 //
-// Submitting the DMG covers the Comote.app inside it in one round-trip; stapling
+// Submitting the DMG covers the GugleComote.app inside it in one round-trip; stapling
 // the DMG embeds the ticket so Gatekeeper passes offline. No-ops when the API-key
 // env is absent, so local builds and forks without secrets still succeed.
 //
@@ -9,7 +9,7 @@
 //   COMOTE_NOTARY_KEY_ID    — the key's Key ID
 //   COMOTE_NOTARY_ISSUER_ID — the App Store Connect issuer UUID
 //
-// Usage: node scripts/notarize-macos-dmg.mjs release/Comote-1.2.3-arm64.dmg
+// Usage: node scripts/notarize-macos-dmg.mjs release/GugleComote-1.2.3-arm64.dmg
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 

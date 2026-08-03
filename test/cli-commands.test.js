@@ -1213,7 +1213,7 @@ test("logs --file: missing files → friendly pointer with expected locations, e
     assert.equal(code, 0, "missing desktop logs are not an error");
     assert.match(text, /No desktop-App log files found/);
     assert.match(text, /comote-launch\.log/);
-    assert.match(text, /only written when Comote runs as the desktop App/);
+    assert.match(text, /only written when GugleComote runs as the desktop App/);
     assert.match(text, /comote logs/);
   } finally {
     await rm(dir, { recursive: true, force: true });
@@ -1262,8 +1262,8 @@ test("update: npm install source prints the npm command on any platform", async 
     write: (s) => out.push(s),
     fetchImpl: releaseFetch({
       tag_name: "v99.0.0",
-      html_url: "https://github.com/GavinYangAI/comote/releases/tag/v99.0.0",
-      assets: [{ name: "Comote-99.0.0-arm64.dmg", browser_download_url: "u-dmg" }],
+      html_url: "https://github.com/Gu-ZT/Comote/releases/tag/v99.0.0",
+      assets: [{ name: "GugleComote-99.0.0-arm64.dmg", browser_download_url: "u-dmg" }],
     }),
     installSource: "npm",
   });
@@ -1284,10 +1284,10 @@ test("update: desktop install source prints the download link, never an npm comm
     write: (s) => out.push(s),
     fetchImpl: releaseFetch({
       tag_name: "v99.0.0",
-      html_url: "https://github.com/GavinYangAI/comote/releases/tag/v99.0.0",
+      html_url: "https://github.com/Gu-ZT/Comote/releases/tag/v99.0.0",
       assets: [
-        { name: "Comote-99.0.0-arm64.dmg", browser_download_url: "u-dmg" },
-        { name: "Comote-Setup-99.0.0-x64.exe", browser_download_url: "u-exe" },
+        { name: "GugleComote-99.0.0-arm64.dmg", browser_download_url: "u-dmg" },
+        { name: "GugleComote-Setup-99.0.0-x64.exe", browser_download_url: "u-exe" },
       ],
     }),
     installSource: "desktop",

@@ -1,4 +1,4 @@
-// Code-signs the built Comote.app for Developer ID distribution + notarization.
+// Code-signs the built GugleComote.app for Developer ID distribution + notarization.
 //
 // Runs between `tauri build` and `create-mac-dmg.mjs`. If COMOTE_SIGNING_IDENTITY
 // is unset (local dev, forks without secrets) it no-ops, so unsigned builds still
@@ -28,7 +28,7 @@ const appPath = join(
   "release",
   "bundle",
   "macos",
-  "Comote.app",
+  "GugleComote.app",
 );
 const entitlements = join(process.cwd(), "src-tauri", "entitlements.plist");
 

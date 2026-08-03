@@ -17,7 +17,7 @@ permissions:
 
 jobs:
   mac-arm64:
-    name: Comote macOS arm64 DMG
+    name: GugleComote macOS arm64 DMG
     runs-on: macos-14
     # Stable tags use the protected signing environment. Main-branch builds use
     # a separate environment with no signing secrets and produce unsigned DMGs.
@@ -77,7 +77,7 @@ jobs:
         env:
           COMOTE_NOTARY_KEY_ID: ${{ github.ref_type == 'tag' && secrets.APPLE_NOTARY_KEY_ID || '' }}
           COMOTE_NOTARY_ISSUER_ID: ${{ github.ref_type == 'tag' && secrets.APPLE_NOTARY_ISSUER_ID || '' }}
-        run: node scripts/notarize-macos-dmg.mjs release/Comote-*-arm64.dmg
+        run: node scripts/notarize-macos-dmg.mjs release/GugleComote-*-arm64.dmg
 
       - name: Clean up keychain
         if: always() && steps.cfg.outputs.signing == 'true'
@@ -85,12 +85,12 @@ jobs:
 
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: Comote-arm64-dmg
-          path: release/Comote-*-arm64.dmg
+          name: GugleComote-arm64-dmg
+          path: release/GugleComote-*-arm64.dmg
           if-no-files-found: error
 
   windows-x64:
-    name: Comote Windows x64 installer
+    name: GugleComote Windows x64 installer
     runs-on: windows-2022
     steps:
       - uses: actions/checkout@93cb6efe18208431cddfb8368fd83d5badbf9bfd # v5
@@ -103,15 +103,15 @@ jobs:
       - run: npm run dist:win
       - uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: Comote-win-x64-setup
-          path: release/Comote-Setup-*-x64.exe
+          name: GugleComote-win-x64-setup
+          path: release/GugleComote-Setup-*-x64.exe
           if-no-files-found: error
 
   publish-npm:
     name: Publish to npm
     # Only the canonical repo can publish — forks lack the trusted-publisher
     # config on npmjs.com, so skip there instead of failing.
-    if: github.ref_type == 'tag' && github.repository == 'GavinYangAI/Comote'
+    if: github.ref_type == 'tag' && github.repository == 'Gu-ZT/Comote'
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -131,7 +131,7 @@ jobs:
       - name: Publish via OIDC trusted publishing if version is new
         # No NODE_AUTH_TOKEN: the npm CLI auto-detects the GitHub Actions OIDC
         # environment and exchanges a short-lived token with the registry. The
-        # package's trusted publisher (GitHub Actions → GavinYangAI/Comote →
+        # package's trusted publisher (GitHub Actions → Gu-ZT/Comote →
         # desktop-release.yml) is configured on npmjs.com. Provenance is emitted
         # automatically, so no --provenance flag is needed.
         run: |
@@ -155,11 +155,11 @@ jobs:
           fetch-tags: true
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: Comote-arm64-dmg
+          name: GugleComote-arm64-dmg
           path: release-artifacts
       - uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
         with:
-          name: Comote-win-x64-setup
+          name: GugleComote-win-x64-setup
           path: release-artifacts
       - name: Resolve release metadata and collect commit notes
         id: release
@@ -200,8 +200,8 @@ jobs:
             NOTES_HEADING="Changes"
           fi
           NOTES="$(git log --format='- %s (`%h`)' "$CHANGE_RANGE")"
-          MAC_DMG="Comote-${VERSION}-arm64.dmg"
-          WINDOWS_SETUP="Comote-Setup-${VERSION}-x64.exe"
+          MAC_DMG="GugleComote-${VERSION}-arm64.dmg"
+          WINDOWS_SETUP="GugleComote-Setup-${VERSION}-x64.exe"
           for ARTIFACT in "$MAC_DMG" "$WINDOWS_SETUP"; do
             if [ ! -f "release-artifacts/$ARTIFACT" ]; then
               echo "Expected release artifact missing: $ARTIFACT" >&2
@@ -218,7 +218,7 @@ jobs:
             printf '| --- | --- | --- |\n'
             printf '| macOS | Apple Silicon (arm64) | [%s](%s/%s) |\n' "$MAC_DMG" "$RELEASE_DOWNLOAD_BASE" "$MAC_DMG"
             printf '| Windows | x64 | [%s](%s/%s) |\n\n' "$WINDOWS_SETUP" "$RELEASE_DOWNLOAD_BASE" "$WINDOWS_SETUP"
-            printf 'See the [README](https://github.com/GavinYangAI/comote#readme) for installation and setup. / 安装与配置见 [README](https://github.com/GavinYangAI/comote#readme)。\n'
+            printf 'See the [README](https://github.com/Gu-ZT/Comote#readme) for installation and setup. / 安装与配置见 [README](https://github.com/Gu-ZT/Comote#readme)。\n'
           } > RELEASE_BODY.md
           echo "tag=$RELEASE_TAG" >> "$GITHUB_OUTPUT"
           echo "prerelease=$PRERELEASE" >> "$GITHUB_OUTPUT"
@@ -230,7 +230,7 @@ jobs:
           files: release-artifacts/*
           tag_name: ${{ steps.release.outputs.tag }}
           target_commitish: ${{ github.sha }}
-          name: Comote ${{ steps.release.outputs.tag }}
+          name: GugleComote ${{ steps.release.outputs.tag }}
           body_path: RELEASE_BODY.md
           draft: false
           prerelease: ${{ steps.release.outputs.prerelease }}

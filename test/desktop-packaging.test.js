@@ -14,7 +14,7 @@ test("desktop packaging targets the requested Tauri installer artifacts", async 
   assert.match(packageJson.scripts["dist:win"], /--bundles nsis/);
   assert.match(packageJson.scripts["dist:win"], /--target x86_64-pc-windows-msvc/);
   assert.match(packageJson.scripts["dist:win"], /collect-tauri-artifacts\.mjs win/);
-  assert.equal(tauriConfig.productName, "Comote");
+  assert.equal(tauriConfig.productName, "GugleComote");
   // Keep package.json and tauri.conf.json in lockstep so installer filenames
   // and the embedded Tauri version don't drift apart.
   assert.equal(tauriConfig.version, packageJson.version);

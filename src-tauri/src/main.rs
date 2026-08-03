@@ -191,7 +191,7 @@ fn main() {
             let app_data_dir = app.path().app_data_dir()?;
             fs::create_dir_all(&app_data_dir)?;
             let log_path = app_data_dir.join("comote-launch.log");
-            log_line(&log_path, "--- Comote launching ---");
+            log_line(&log_path, "--- GugleComote launching ---");
 
             // Create the window FIRST. The previous flow waited for the local
             // service inside setup and propagated any failure out of build(),
@@ -202,7 +202,7 @@ fn main() {
             // readable error (with the log path) right there if it never comes up.
             let window =
                 WebviewWindowBuilder::new(app, "main", WebviewUrl::App("boot.html".into()))
-                    .title("Comote")
+                    .title("GugleComote")
                     .inner_size(1280.0, 800.0)
                     .min_inner_size(960.0, 600.0)
                     .build()?;
@@ -226,7 +226,7 @@ fn main() {
                     );
                     // Reuse our error surface: the boot page flips to its error
                     // state and points at the log, which now explains the version
-                    // conflict and how to recover (quit the old Comote).
+                    // conflict and how to recover (quit the old GugleComote).
                     show_launch_error(&window, &log_path);
                     app.manage(ComoteSidecar(Mutex::new(None)));
                     return Ok(());
@@ -318,15 +318,15 @@ fn main() {
             #[cfg(target_os = "macos")]
             app.set_activation_policy(tauri::ActivationPolicy::Regular);
 
-            // A tray icon keeps Comote resident. Without it, closing the window
+            // A tray icon keeps GugleComote resident. Without it, closing the window
             // would stop the local daemon and break the phone bridge — exactly
             // when the user is away from the Mac and needs it most.
-            let show = MenuItem::with_id(app, "show", "打开 Comote", true, None::<&str>)?;
-            let quit = MenuItem::with_id(app, "quit", "退出 Comote", true, None::<&str>)?;
+            let show = MenuItem::with_id(app, "show", "打开 GugleComote", true, None::<&str>)?;
+            let quit = MenuItem::with_id(app, "quit", "退出 GugleComote", true, None::<&str>)?;
             let menu = Menu::with_items(app, &[&show, &quit])?;
             TrayIconBuilder::new()
                 .icon(app.default_window_icon().expect("app icon").clone())
-                .tooltip("Comote")
+                .tooltip("GugleComote")
                 .menu(&menu)
                 .show_menu_on_left_click(true)
                 .on_menu_event(|app, event| match event.id.as_ref() {
@@ -348,7 +348,7 @@ fn main() {
             }
         })
         .build(tauri::generate_context!())
-        .expect("error while building Comote");
+        .expect("error while building GugleComote");
 
     app.run(|app_handle, event| {
         // The tray menu requests termination explicitly. ExitRequested does not
@@ -1163,7 +1163,7 @@ mod tests {
 
     #[test]
     fn windows_manual_sidecar_candidates_prefer_plain_exe() {
-        let resource_dir = PathBuf::from(r"C:\Program Files\Comote");
+        let resource_dir = PathBuf::from(r"C:\Program Files\GugleComote");
         let candidates = windows_manual_sidecar_candidates(&resource_dir);
         assert_eq!(candidates[0], resource_dir.join("comote-node.exe"));
         assert!(candidates.contains(&resource_dir.join("comote-node-x86_64-pc-windows-msvc.exe")));
@@ -1215,7 +1215,7 @@ mod tests {
         ));
         fs::create_dir_all(&dir).unwrap();
         let launch_log = dir.join("comote-launch.log");
-        fs::write(&launch_log, "--- Comote launching ---\n").unwrap();
+        fs::write(&launch_log, "--- GugleComote launching ---\n").unwrap();
         fs::write(
             dir.join("comote-node.stderr.log"),
             "Error: Cannot find module './app.js'\n    at ...\n",
@@ -1252,13 +1252,13 @@ mod tests {
     #[test]
     fn normalize_windows_path_strips_verbatim_prefix() {
         assert_eq!(
-            normalize_windows_path(PathBuf::from(r"\\?\C:\Program Files\Comote\comote-node.exe")),
-            PathBuf::from(r"C:\Program Files\Comote\comote-node.exe")
+            normalize_windows_path(PathBuf::from(r"\\?\C:\Program Files\GugleComote\comote-node.exe")),
+            PathBuf::from(r"C:\Program Files\GugleComote\comote-node.exe")
         );
         // No prefix → identity.
         assert_eq!(
-            normalize_windows_path(PathBuf::from(r"C:\Comote\node.exe")),
-            PathBuf::from(r"C:\Comote\node.exe")
+            normalize_windows_path(PathBuf::from(r"C:\GugleComote\node.exe")),
+            PathBuf::from(r"C:\GugleComote\node.exe")
         );
     }
 

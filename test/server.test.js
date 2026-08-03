@@ -87,7 +87,7 @@ test("status API exposes Comote state", async () => {
   server.close();
 
   assert.equal(response.status, 200);
-  assert.equal(body.appName, "Comote");
+  assert.equal(body.appName, "GugleComote");
   assert.equal(body.connectors.desktop.role, "primary");
 });
 

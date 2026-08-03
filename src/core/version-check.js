@@ -3,7 +3,7 @@ import { mkdir, readFile, writeFile } from "node:fs/promises";
 import { dirname, sep } from "node:path";
 import { fileURLToPath } from "node:url";
 
-const DEFAULT_REPO = "GavinYangAI/comote";
+const DEFAULT_REPO = "Gu-ZT/Comote";
 const DEFAULT_INTERVAL_MS = 6 * 60 * 60 * 1000;
 const DEFAULT_INITIAL_DELAY_MS = 30_000;
 const CACHE_TTL_MS = 60 * 60 * 1000;

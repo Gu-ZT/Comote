@@ -433,7 +433,7 @@ test("[B-12b] router snapshot carries noticed/greeted identities and restore sup
   authorization.confirmIdentity(alice);
 
   const welcome = await router.handleMessageAsync({ identity: alice, text: "/status" });
-  assert.match(welcome.text, /你已连接到 Comote/);
+  assert.match(welcome.text, /你已连接到 GugleComote/);
   const notice = await router.handleMessageAsync({ identity: stranger, text: "hello" });
   assert.equal(notice.kind, "notice");
 
@@ -446,7 +446,7 @@ test("[B-12b] router snapshot carries noticed/greeted identities and restore sup
   authorization2.confirmIdentity(alice);
 
   const second = await router2.handleMessageAsync({ identity: alice, text: "/status" });
-  assert.ok(!second.text.includes("你已连接到 Comote"), "welcome must not repeat after restart");
+  assert.ok(!second.text.includes("你已连接到 GugleComote"), "welcome must not repeat after restart");
   const strangerAgain = await router2.handleMessageAsync({ identity: stranger, text: "hello" });
   assert.equal(strangerAgain.kind, "denied", "notice must not repeat after restart");
 });
