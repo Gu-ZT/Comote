@@ -28,6 +28,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: Write CI build version
+        if: github.ref_type != 'tag'
+        run: node scripts/set-build-version.mjs --build "${{ github.run_number }}"
       - run: npm ci
       - run: npm test
 
@@ -98,6 +101,9 @@ jobs:
         with:
           node-version: 22
           cache: npm
+      - name: Write CI build version
+        if: github.ref_type != 'tag'
+        run: node scripts/set-build-version.mjs --build "${{ github.run_number }}"
       - run: npm ci
       - run: npm test
       - run: npm run dist:win
@@ -178,7 +184,9 @@ jobs:
             PRERELEASE=false
             SEARCH_REVISION="${GITHUB_SHA}^"
           else
-            RELEASE_TAG="v${VERSION}+build.${GITHUB_RUN_NUMBER}"
+            node scripts/set-build-version.mjs --build "$GITHUB_RUN_NUMBER"
+            VERSION="$(node -p "require('./package.json').version")"
+            RELEASE_TAG="v${VERSION}"
             PRERELEASE=true
             SEARCH_REVISION="$GITHUB_SHA"
           fi

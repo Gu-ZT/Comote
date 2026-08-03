@@ -9,7 +9,8 @@ test("desktop release publishes stable tags and main-branch prereleases", async 
 
   assert.match(workflow, /branches:\s*\n\s*- main/);
   assert.match(workflow, /- "v\[0-9\]\+\.\[0-9\]\+\.\[0-9\]\+"/);
-  assert.match(workflow, /RELEASE_TAG="v\$\{VERSION\}\+build\.\$\{GITHUB_RUN_NUMBER\}"/);
+  assert.match(workflow, /node scripts\/set-build-version\.mjs --build "\$\{\{ github\.run_number \}\}"/);
+  assert.match(workflow, /RELEASE_TAG="v\$\{VERSION\}"/);
   assert.match(workflow, /PRERELEASE=true/);
   assert.match(workflow, /environment: \$\{\{ github\.ref_type == 'tag' && 'release-signing' \|\| 'prerelease' \}\}/);
   assert.match(workflow, /HAS_CERT: \$\{\{ github\.ref_type == 'tag' && secrets\.APPLE_CERTIFICATE != '' \}\}/);
