@@ -1052,6 +1052,42 @@ test("desktop connector accumulates Codex 0.136 agentMessage deltas", async () =
   ]);
 });
 
+test("desktop connector reads turn ids from Codex 0.146 turn objects", async () => {
+  const transport = new MemoryTransport();
+  const connector = new CodexDesktopConnector({ transport });
+  await connector.client.connect();
+  const events = [];
+  connector.onEvent = (event) => events.push(event);
+
+  transport.receive({
+    jsonrpc: "2.0",
+    method: "turn/started",
+    params: { threadId: "thread_146", turn: { id: "turn_146" } },
+  });
+  transport.receive({
+    jsonrpc: "2.0",
+    method: "item/agentMessage/delta",
+    params: {
+      threadId: "thread_146",
+      turnId: "turn_146",
+      itemId: "item_146",
+      delta: "answer",
+    },
+  });
+  transport.receive({
+    jsonrpc: "2.0",
+    method: "turn/completed",
+    params: { threadId: "thread_146", turn: { id: "turn_146" } },
+  });
+
+  assert.equal(events[0].type, "turnStarted");
+  assert.equal(events[0].turnId, "turn_146");
+  assert.equal(events[1].type, "agentMessageDelta");
+  assert.equal(events[1].turnId, "turn_146");
+  assert.equal(events[2].type, "turnCompleted");
+  assert.equal(events[2].turnId, "turn_146");
+});
+
 test("item/completed clears the accumulated delta text so it does not leak across turns", async () => {
   const transport = new MemoryTransport();
   const connector = new CodexDesktopConnector({ transport });

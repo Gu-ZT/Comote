@@ -209,6 +209,69 @@ test("Codex streaming for a Feishu thread drives a live card", async () => {
   assert.equal(state.outboundReplies.list({ channel: "feishu" }).length, 0);
 });
 
+test("Codex 0.146 turn objects keep Feishu agent output on the live card", async () => {
+  const { transport, desktop, state } = buildState();
+  await desktop.client.connect();
+
+  state.commandRouter.conversationByIdentity.set("feishu:ou_owner", {
+    channel: "feishu",
+    conversationId: "oc_chat",
+  });
+  state.commandRouter.bindThreadForIdentity(
+    { channel: "feishu", stableId: "ou_owner" },
+    "thread_146",
+  );
+
+  const calls = { sent: [], updated: [] };
+  state.runtime.feishu.__setTestDriver({
+    getStatus: () => ({ state: "configured" }),
+    verifyEvent: () => true,
+    async sendCard(message) {
+      calls.sent.push(message);
+      return { messageId: "om_146" };
+    },
+    async updateCard(message) {
+      calls.updated.push(message);
+      return { code: 0 };
+    },
+  });
+
+  transport.receive({
+    jsonrpc: "2.0",
+    method: "turn/started",
+    params: { threadId: "thread_146", turn: { id: "turn_146" } },
+  });
+  await tick();
+  transport.receive({
+    jsonrpc: "2.0",
+    method: "item/agentMessage/delta",
+    params: {
+      threadId: "thread_146",
+      turnId: "turn_146",
+      itemId: "item_146",
+      delta: "回复正文",
+    },
+  });
+  transport.receive({
+    jsonrpc: "2.0",
+    method: "item/completed",
+    params: {
+      threadId: "thread_146",
+      turnId: "turn_146",
+      item: { type: "agentMessage", id: "item_146", text: "回复正文" },
+    },
+  });
+  transport.receive({
+    jsonrpc: "2.0",
+    method: "turn/completed",
+    params: { threadId: "thread_146", turn: { id: "turn_146" } },
+  });
+  await waitFor(() => calls.updated.length > 0);
+
+  assert.match(JSON.stringify(calls.updated.at(-1).card), /回复正文/);
+  assert.equal(state.outboundReplies.list({ channel: "feishu" }).length, 0);
+});
+
 test("a new Codex turn opens a new Feishu card and isolates late old events", async () => {
   const { transport, desktop, state } = buildState();
   await desktop.client.connect();

@@ -284,12 +284,13 @@ export class CodexDesktopConnector {
       return;
     }
     if (method === "turn/started") {
+      const turnId = protocolTurnId(params);
       this._activeThreadId = params.threadId ?? null;
-      this._activeTurnId = params.turnId ?? null;
+      this._activeTurnId = turnId;
       this.#emit({
         type: "turnStarted",
         threadId: params.threadId ?? null,
-        ...(params.turnId != null ? { turnId: params.turnId } : {}),
+        ...(turnId != null ? { turnId } : {}),
       });
       return;
     }
@@ -298,7 +299,7 @@ export class CodexDesktopConnector {
       // Keep a missing protocol turnId missing. The state layer has a FIFO
       // fallback for older servers; substituting the newest active turn here
       // would mislabel a late completion from an interrupted older turn.
-      const turnId = params.turnId ?? null;
+      const turnId = protocolTurnId(params);
       const set = threadId != null ? this.changedPathsByThread.get(threadId) : null;
       const changedPaths = set ? [...set] : [];
       if (threadId != null) {
@@ -387,7 +388,7 @@ export class CodexDesktopConnector {
   }
 
   #eventTurnId(params) {
-    return params.turnId ?? this._activeTurnId ?? null;
+    return protocolTurnId(params) ?? this._activeTurnId ?? null;
   }
 
   // Accumulates absolute paths of files changed during the active turn, keyed
@@ -1088,6 +1089,10 @@ function agentMessageKey(threadId, itemId, turnId = null) {
   return turnId == null
     ? `${threadId ?? ""}:${itemId ?? ""}`
     : `${threadId ?? ""}:${turnId}:${itemId ?? ""}`;
+}
+
+function protocolTurnId(params) {
+  return params?.turnId ?? params?.turn?.id ?? null;
 }
 
 function isMethodMissingError(error) {
