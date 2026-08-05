@@ -42,9 +42,19 @@ const MILESTONE_MIN_INTERVAL_MS = 8_000;
 const MILESTONE_MAX_PER_TURN = 6;
 const HEARTBEAT_MS = 90_000;
 const CONNECTOR_PREFERENCES = new Set(["desktop", "cli"]);
+export const CAPACITY_RETRY_ERROR_MESSAGE = "Selected model is at capacity. Please try a different model.";
+export const DEFAULT_CAPACITY_RETRY_LIMIT = 10;
+export const MAX_CAPACITY_RETRY_LIMIT = 100;
 
 function normalizeConnectorPreference(value) {
   return CONNECTOR_PREFERENCES.has(value) ? value : "desktop";
+}
+
+function normalizeCapacityRetryLimit(value) {
+  const number = Number(value);
+  return Number.isInteger(number) && number >= 1 && number <= MAX_CAPACITY_RETRY_LIMIT
+    ? number
+    : null;
 }
 
 export function createComoteState({
@@ -69,6 +79,9 @@ export function createComoteState({
     locale: setI18nLocale(persisted?.settings?.locale ?? DEFAULT_LOCALE),
     localeExplicit: Boolean(persisted?.settings?.locale),
     preferredConnector: normalizeConnectorPreference(persisted?.settings?.preferredConnector),
+    capacityRetryEnabled: persisted?.settings?.capacityRetryEnabled === true,
+    capacityRetryLimit: normalizeCapacityRetryLimit(persisted?.settings?.capacityRetryLimit)
+      ?? DEFAULT_CAPACITY_RETRY_LIMIT,
   };
 
   const authorization = new AuthorizationStore({ identities: persisted.identities ?? [] });
@@ -728,6 +741,25 @@ export function createComoteState({
       settings.preferredConnector = preferredConnector;
       return preferredConnector;
     },
+    setCapacityRetryEnabled(enabled) {
+      if (typeof enabled !== "boolean") {
+        throw new Error("capacity retry enabled must be a boolean");
+      }
+      settings.capacityRetryEnabled = enabled;
+      if (!enabled) {
+        capacityRetryByThread.clear();
+        autoContinuationThreads.clear();
+      }
+      return enabled;
+    },
+    setCapacityRetryLimit(limit) {
+      const normalized = normalizeCapacityRetryLimit(limit);
+      if (normalized === null) {
+        throw new Error(`capacity retry limit must be an integer between 1 and ${MAX_CAPACITY_RETRY_LIMIT}`);
+      }
+      settings.capacityRetryLimit = normalized;
+      return normalized;
+    },
     async persist() {
       if (!stateStore) {
         return;
@@ -933,6 +965,11 @@ export function createComoteState({
   // protocol turnId on modern app-server events; the nonce fallback keeps
   // manually-created/test events isolated too.
   const activeTurnByThread = new Map();
+  // Consecutive model-capacity errors are tracked per thread. The pending flag
+  // bridges an error notification and the following turn/completed event so an
+  // automatic continuation never starts while the failed turn is still active.
+  const capacityRetryByThread = new Map();
+  const autoContinuationThreads = new Set();
   // Sessions detached when a newer turn starts before the older turn's
   // turn/completed notification arrives. They remain addressable by turnId so
   // the old completion can finish the old message instead of the new card.
@@ -950,6 +987,96 @@ export function createComoteState({
     const active = activeTurnByThread.get(event.threadId);
     if (!active || event.turnId == null) return true;
     return String(active.turnId) === String(event.turnId);
+  };
+  const recordCapacityError = (threadId) => {
+    if (!settings.capacityRetryEnabled || threadId == null) {
+      return null;
+    }
+    const previous = capacityRetryByThread.get(threadId) ?? { count: 0, pending: false, stopped: false };
+    const count = previous.count + 1;
+    const limit = settings.capacityRetryLimit;
+    const retry = {
+      count,
+      pending: count < limit,
+      stopped: count >= limit,
+    };
+    capacityRetryByThread.set(threadId, retry);
+    return { ...retry, limit };
+  };
+  const isNoActiveTurnError = (error) => /no active turn|active turn.*not found/i.test(
+    error?.message ?? String(error),
+  );
+  const stopCapacityRetryTask = async (threadId, count, limit) => {
+    try {
+      if (typeof desktop.cancelTurn === "function") {
+        await desktop.cancelTurn({ threadId });
+      }
+      eventLog.warn("Codex 容量错误达到上限，已停止当前任务", {
+        threadId,
+        count,
+        limit,
+      });
+    } catch (error) {
+      if (isNoActiveTurnError(error)) {
+        eventLog.warn("Codex 容量错误达到上限，当前任务已结束", {
+          threadId,
+          count,
+          limit,
+        });
+        return;
+      }
+      eventLog.error("停止 Codex 容量重试任务失败", {
+        threadId,
+        count,
+        limit,
+        error: error?.message ?? String(error),
+      });
+    }
+  };
+  const startCapacityRetry = async (threadId, cwd, count, limit) => {
+    const retry = capacityRetryByThread.get(threadId);
+    if (!retry || retry.count !== count || !settings.capacityRetryEnabled) {
+      return;
+    }
+    if (count >= settings.capacityRetryLimit) {
+      retry.pending = false;
+      retry.stopped = true;
+      void stopCapacityRetryTask(threadId, count, settings.capacityRetryLimit);
+      return;
+    }
+    try {
+      if (typeof desktop.resumeThread === "function") {
+        await desktop.resumeThread({ threadId, cwd });
+      }
+      if (!settings.capacityRetryEnabled || capacityRetryByThread.get(threadId)?.count !== count) {
+        autoContinuationThreads.delete(threadId);
+        return;
+      }
+      if (typeof desktop.startTurn !== "function") {
+        throw new Error("Codex Desktop 不支持自动继续");
+      }
+      // Mark this before startTurn: a test transport or a fast app-server can
+      // emit turn/started before the RPC promise resolves.
+      autoContinuationThreads.add(threadId);
+      transcript.record(threadId, "user", "继续");
+      await desktop.startTurn({ threadId, text: "继续", cwd, images: [] });
+      eventLog.info("Codex 容量错误，已自动发送继续", {
+        threadId,
+        count,
+        limit,
+      });
+      persistInBackground();
+    } catch (error) {
+      autoContinuationThreads.delete(threadId);
+      capacityRetryByThread.delete(threadId);
+      eventLog.error("自动发送继续失败", {
+        threadId,
+        count,
+        limit,
+        error: error?.message ?? String(error),
+      });
+      persistInBackground();
+    }
   };
   const snapshotTurnState = (turnKey) => ({
     text: streamTextByThread.get(turnKey) ?? "",
@@ -1029,6 +1156,7 @@ export function createComoteState({
 
   function routeDesktopEvent(event) {
     if (event.type === "turnStarted") {
+      const isAutoContinuation = autoContinuationThreads.delete(event.threadId);
       const previousTurn = activeTurnByThread.get(event.threadId);
       // A duplicated turn/started notification must not create another IM card
       // for the same Codex turn.
@@ -1036,6 +1164,9 @@ export function createComoteState({
         && previousTurn?.turnId != null
         && String(previousTurn.turnId) === String(event.turnId)) {
         return;
+      }
+      if (!isAutoContinuation) {
+        capacityRetryByThread.delete(event.threadId);
       }
       // Advance the per-thread turn nonce for EVERY channel — both the milestone
       // key and the agent: fallback key fold it in, and push channels (milestones
@@ -1168,6 +1299,16 @@ export function createComoteState({
         sleepGuard.release(event.threadId);
       }
       eventLog.info("Codex turn 完成", { threadId: event.threadId });
+      const capacityRetry = isCurrent ? capacityRetryByThread.get(event.threadId) : null;
+      if (capacityRetry?.pending) {
+        capacityRetry.pending = false;
+        void startCapacityRetry(
+          event.threadId,
+          completedBinding?.projectPath ?? null,
+          capacityRetry.count,
+          settings.capacityRetryLimit,
+        );
+      }
       return;
     }
     if (event.type === "approvalResolved") {
@@ -1368,15 +1509,16 @@ export function createComoteState({
         threadId: event.threadId,
         preview: String(event.text ?? "").slice(0, 120),
       });
+      if (!isCurrentTurnEvent(event)) {
+        // A late item from an interrupted turn belongs to its already-detached
+        // card. Do not reset the next turn's capacity retry chain.
+        return;
+      }
+      // A real assistant response breaks the consecutive-capacity-error chain.
+      capacityRetryByThread.delete(event.threadId);
       const binding = commandRouter.getThreadBinding(event.threadId);
       if (!binding) {
         eventLog.warn("收到 Codex 输出但找不到对应会话，未转发", { threadId: event.threadId });
-        return;
-      }
-      if (!isCurrentTurnEvent(event)) {
-        // A late item from an interrupted turn belongs to its already-detached
-        // card. Do not fall back to a new standalone reply or mutate the next
-        // turn's live card.
         return;
       }
       const turnKey = eventTurnKey(event);
@@ -1469,6 +1611,30 @@ export function createComoteState({
       const binding = commandRouter.getThreadBinding(event.threadId);
       const errLive = liveCardRuntime(binding?.channel);
       const errorMessage = normalizeCodexErrorText(event.message) || "Codex 报告了一个错误";
+      const capacityRetry = errorMessage === CAPACITY_RETRY_ERROR_MESSAGE
+        ? recordCapacityError(event.threadId)
+        : null;
+      if (capacityRetry) {
+        eventLog.error("Codex 错误", {
+          threadId: event.threadId,
+          message: errorMessage,
+          capacityRetryCount: capacityRetry.count,
+          capacityRetryLimit: capacityRetry.limit,
+        });
+        if (!capacityRetry.stopped) {
+          eventLog.info("Codex 容量不足，等待本轮结束后自动发送继续", {
+            threadId: event.threadId,
+            count: capacityRetry.count,
+            limit: capacityRetry.limit,
+          });
+          if (!errLive) {
+            persistInBackground();
+            return;
+          }
+        } else {
+          void stopCapacityRetryTask(event.threadId, capacityRetry.count, capacityRetry.limit);
+        }
+      }
       if (errLive && errLive.hasThreadCard(event.threadId)) {
         const errorText = t("state.error.card", { message: errorMessage });
         const content = threadContent(turnKey);
@@ -1483,11 +1649,15 @@ export function createComoteState({
             content,
           }),
         );
-        eventLog.error("Codex 错误", { threadId: event.threadId, message: errorMessage });
+        if (!capacityRetry) {
+          eventLog.error("Codex 错误", { threadId: event.threadId, message: errorMessage });
+        }
         return;
       }
       clearTurnState(turnKey);
-      eventLog.error("Codex 错误", { threadId: event.threadId, message: errorMessage });
+      if (!capacityRetry) {
+        eventLog.error("Codex 错误", { threadId: event.threadId, message: errorMessage });
+      }
       if (!binding) {
         eventLog.warn("收到 Codex 输出但找不到对应会话，未转发", {
           threadId: event.threadId ?? null,

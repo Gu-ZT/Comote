@@ -6,7 +6,11 @@ import { fileURLToPath } from "node:url";
 
 import { SUPPORTED_LOCALES } from "../core/i18n/index.js";
 import { detectInstallSource, NPM_UPDATE_COMMAND } from "../core/version-check.js";
-import { createComoteState } from "./state.js";
+import {
+  createComoteState,
+  DEFAULT_CAPACITY_RETRY_LIMIT,
+  MAX_CAPACITY_RETRY_LIMIT,
+} from "./state.js";
 
 const ROOT = fileURLToPath(new URL("../../", import.meta.url));
 const PUBLIC_DIR = join(ROOT, "public");
@@ -82,6 +86,8 @@ async function handleApi(request, response, state) {
       locale: settings.locale,
       localeExplicit: settings.localeExplicit ?? false,
       preferredConnector: settings.preferredConnector ?? "desktop",
+      capacityRetryEnabled: Boolean(settings.capacityRetryEnabled),
+      capacityRetryLimit: settings.capacityRetryLimit ?? DEFAULT_CAPACITY_RETRY_LIMIT,
       supported: SUPPORTED_LOCALES,
     });
     return;
@@ -91,7 +97,9 @@ async function handleApi(request, response, state) {
     const body = await readJsonBody(request);
     const hasLocale = Object.hasOwn(body ?? {}, "locale");
     const hasPreferredConnector = Object.hasOwn(body ?? {}, "preferredConnector");
-    if (!hasLocale && !hasPreferredConnector) {
+    const hasCapacityRetryEnabled = Object.hasOwn(body ?? {}, "capacityRetryEnabled");
+    const hasCapacityRetryLimit = Object.hasOwn(body ?? {}, "capacityRetryLimit");
+    if (!hasLocale && !hasPreferredConnector && !hasCapacityRetryEnabled && !hasCapacityRetryLimit) {
       sendJson(response, 400, { error: "no supported settings supplied" });
       return;
     }
@@ -103,11 +111,30 @@ async function handleApi(request, response, state) {
       sendJson(response, 400, { error: "unsupported connector preference" });
       return;
     }
+    if (hasCapacityRetryEnabled && typeof body.capacityRetryEnabled !== "boolean") {
+      sendJson(response, 400, { error: "capacity retry enabled must be a boolean" });
+      return;
+    }
+    if (hasCapacityRetryLimit
+      && (!Number.isInteger(body.capacityRetryLimit)
+        || body.capacityRetryLimit < 1
+        || body.capacityRetryLimit > MAX_CAPACITY_RETRY_LIMIT)) {
+      sendJson(response, 400, {
+        error: `capacity retry limit must be an integer between 1 and ${MAX_CAPACITY_RETRY_LIMIT}`,
+      });
+      return;
+    }
     if (hasLocale) {
       state.setLocale(body.locale);
     }
     if (hasPreferredConnector) {
       state.setPreferredConnector(body.preferredConnector);
+    }
+    if (hasCapacityRetryEnabled) {
+      state.setCapacityRetryEnabled(body.capacityRetryEnabled);
+    }
+    if (hasCapacityRetryLimit) {
+      state.setCapacityRetryLimit(body.capacityRetryLimit);
     }
     await state.persist?.();
     sendJson(response, 200, state.getSettings());

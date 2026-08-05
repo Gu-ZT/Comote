@@ -43,3 +43,27 @@ test("setPreferredConnector validates and updates the live setting", () => {
   assert.throws(() => state.setPreferredConnector("other"), /unsupported connector preference/);
   assert.equal(state.getSettings().preferredConnector, "cli");
 });
+
+test("capacity retry settings default, restore, and validate", () => {
+  const defaults = createComoteState({ persisted: {} });
+  const restored = createComoteState({
+    persisted: { settings: { capacityRetryEnabled: true, capacityRetryLimit: 24 } },
+  });
+  const invalid = createComoteState({
+    persisted: { settings: { capacityRetryEnabled: "yes", capacityRetryLimit: 0 } },
+  });
+
+  assert.equal(defaults.getSettings().capacityRetryEnabled, false);
+  assert.equal(defaults.getSettings().capacityRetryLimit, 10);
+  assert.equal(restored.getSettings().capacityRetryEnabled, true);
+  assert.equal(restored.getSettings().capacityRetryLimit, 24);
+  assert.equal(invalid.getSettings().capacityRetryEnabled, false);
+  assert.equal(invalid.getSettings().capacityRetryLimit, 10);
+
+  defaults.setCapacityRetryEnabled(true);
+  defaults.setCapacityRetryLimit(3);
+  assert.equal(defaults.getSettings().capacityRetryEnabled, true);
+  assert.equal(defaults.getSettings().capacityRetryLimit, 3);
+  assert.throws(() => defaults.setCapacityRetryEnabled("true"), /must be a boolean/);
+  assert.throws(() => defaults.setCapacityRetryLimit(101), /between 1 and 100/);
+});

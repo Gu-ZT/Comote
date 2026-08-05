@@ -572,6 +572,8 @@ test("GET /api/settings returns locale and supported list", async () => {
   assert.equal(body.locale, "en");
   assert.equal(body.localeExplicit, true, "a persisted locale is an explicit choice");
   assert.equal(body.preferredConnector, "desktop");
+  assert.equal(body.capacityRetryEnabled, false);
+  assert.equal(body.capacityRetryLimit, 10);
   assert.ok(body.supported.includes("ja"));
 
   // i18n locale is a module-level global; reset so other test files aren't polluted.
@@ -661,6 +663,42 @@ test("PUT /api/settings persists a valid connector preference and rejects an inv
   assert.equal(snapshot.settings.preferredConnector, "cli");
   assert.equal(invalidResponse.status, 400);
   assert.equal(state.getSettings().preferredConnector, "cli");
+});
+
+test("PUT /api/settings persists capacity retry settings and validates the limit", async () => {
+  let snapshot = null;
+  const state = createComoteState({
+    stateStore: { save: async (value) => { snapshot = value; } },
+    autoStartWeChatRuntime: false,
+    autoStartFeishuRuntime: false,
+    autoStartDingTalkRuntime: false,
+    autoStartTelegramRuntime: false,
+  });
+  const app = createServer(state);
+  const server = app.listen(0);
+  await new Promise((resolve) => server.once("listening", resolve));
+
+  const { port } = server.address();
+  const validResponse = await fetch(`http://127.0.0.1:${port}/api/settings`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ capacityRetryEnabled: true, capacityRetryLimit: 7 }),
+  });
+  const valid = await validResponse.json();
+  const invalidResponse = await fetch(`http://127.0.0.1:${port}/api/settings`, {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ capacityRetryLimit: 101 }),
+  });
+  server.close();
+
+  assert.equal(validResponse.status, 200);
+  assert.equal(valid.capacityRetryEnabled, true);
+  assert.equal(valid.capacityRetryLimit, 7);
+  assert.equal(snapshot.settings.capacityRetryEnabled, true);
+  assert.equal(snapshot.settings.capacityRetryLimit, 7);
+  assert.equal(invalidResponse.status, 400);
+  assert.equal(state.getSettings().capacityRetryLimit, 7);
 });
 
 test("wechat outbound queue lists replies and supports ack", async () => {

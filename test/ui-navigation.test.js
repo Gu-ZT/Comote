@@ -86,7 +86,12 @@ test("advanced settings expose a persistent Codex connector selector", async () 
   assert.match(html, /name="preferredConnector" value="desktop"/);
   assert.match(html, /name="preferredConnector" value="cli"/);
   assert.match(js, /JSON\.stringify\(\{ preferredConnector: radio\.value \}\)/);
+  assert.match(html, /id="capacityRetryEnabled" type="checkbox" role="switch"/);
+  assert.match(html, /id="capacityRetryLimit" type="number" min="1" max="100"/);
+  assert.match(js, /capacityRetryEnabled: next\.enabled/);
+  assert.match(js, /capacityRetryLimit: next\.limit/);
   assert.match(css, /\.segmented-selector\s*\{[^}]*grid-template-columns:\s*repeat\(2/s);
+  assert.match(css, /\.capacity-retry-limit-field\s*\{/);
   assert.match(css, /\.advanced-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 760px\)[^}]*justify-content:\s*center/s);
 });
 

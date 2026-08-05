@@ -204,6 +204,82 @@ function setupPreferredConnectorSelector(settings) {
   });
 }
 
+function setupCapacityRetrySettings(settings) {
+  const checkbox = document.querySelector("#capacityRetryEnabled");
+  const limitInput = document.querySelector("#capacityRetryLimit");
+  const status = document.querySelector("#capacityRetryStatus");
+  if (!checkbox || !limitInput || !status) {
+    return;
+  }
+
+  const normalizeLimit = (value) => {
+    const number = Number(value);
+    return Number.isInteger(number) && number >= 1 && number <= 100 ? number : null;
+  };
+  let committed = {
+    enabled: Boolean(settings?.capacityRetryEnabled),
+    limit: normalizeLimit(settings?.capacityRetryLimit) ?? 10,
+  };
+
+  const setStatus = (key) => {
+    status.dataset.i18n = key;
+    status.textContent = tWeb(key);
+  };
+  const sync = () => {
+    checkbox.checked = committed.enabled;
+    limitInput.value = String(committed.limit);
+    limitInput.disabled = !committed.enabled;
+  };
+  const setSaving = (saving) => {
+    checkbox.disabled = saving;
+    limitInput.disabled = saving || !committed.enabled;
+  };
+  const save = async (next, previous) => {
+    committed = next;
+    setSaving(true);
+    setStatus("web.advanced.capacityRetrySaving");
+    try {
+      const saved = await getJson("/api/settings", {
+        method: "PUT",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          capacityRetryEnabled: next.enabled,
+          capacityRetryLimit: next.limit,
+        }),
+      });
+      committed = {
+        enabled: Boolean(saved.capacityRetryEnabled),
+        limit: normalizeLimit(saved.capacityRetryLimit) ?? next.limit,
+      };
+      sync();
+      setStatus("web.advanced.capacityRetrySaved");
+    } catch (error) {
+      committed = previous;
+      sync();
+      setStatus("web.advanced.capacityRetrySaveFailed");
+      console.error("capacity retry settings save failed", error);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  sync();
+  checkbox.addEventListener("change", () => {
+    const previous = { ...committed };
+    void save({ ...committed, enabled: checkbox.checked }, previous);
+  });
+  limitInput.addEventListener("change", () => {
+    const limit = normalizeLimit(limitInput.value);
+    if (limit === null) {
+      sync();
+      setStatus("web.advanced.capacityRetryInvalid");
+      return;
+    }
+    const previous = { ...committed };
+    void save({ ...committed, limit }, previous);
+  });
+}
+
 // Generic per-channel login state: id -> { loginId, pollTimer, startCtx }.
 const activeLogin = {};
 let expandedChannelId = null; // accordion: at most one channel expanded at a time
@@ -2067,6 +2143,8 @@ async function init() {
     supported: ["zh"],
     localeExplicit: true,
     preferredConnector: "desktop",
+    capacityRetryEnabled: false,
+    capacityRetryLimit: 10,
   });
   let locale = settings.value?.locale ?? "zh";
   // First launch (no committed locale): follow the OS language, English if unmatched,
@@ -2091,6 +2169,7 @@ async function init() {
   renderPhoneCommands();
   populateLangSelect();
   setupPreferredConnectorSelector(settings.value);
+  setupCapacityRetrySettings(settings.value);
   const versionData = await refreshVersionStatus();
   if (includePrereleasesPreference() && !versionData?.includePrereleases) {
     await checkVersionNow(true).catch(() => {});

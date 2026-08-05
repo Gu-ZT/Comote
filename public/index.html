@@ -226,6 +226,29 @@
               <p id="preferredConnectorStatus" class="setting-save-status" aria-live="polite" data-i18n="web.advanced.connectorEffective">将在下一次新建或打开会话时生效。</p>
             </article>
 
+            <article class="panel capacity-retry-panel">
+              <h3 data-i18n="web.advanced.capacityRetryTitle">容量错误自动继续</h3>
+              <p class="setting-note" data-i18n="web.advanced.capacityRetryHint">遇到模型容量不足时自动发送“继续”；连续达到上限后停止当前任务。</p>
+              <label class="setting-toggle" for="capacityRetryEnabled">
+                <span class="setting-copy">
+                  <strong data-i18n="web.advanced.capacityRetryLabel">遇到容量不足时自动继续</strong>
+                  <span class="setting-note" data-i18n="web.advanced.capacityRetryDetail">仅匹配：Selected model is at capacity. Please try a different model.</span>
+                </span>
+                <span class="switch-control">
+                  <input id="capacityRetryEnabled" type="checkbox" role="switch" data-i18n-attr="aria-label:web.advanced.capacityRetryLabel" aria-label="遇到容量不足时自动继续">
+                  <span class="switch-track" aria-hidden="true"></span>
+                </span>
+              </label>
+              <label class="capacity-retry-limit-field" for="capacityRetryLimit">
+                <span class="domain-label" data-i18n="web.advanced.capacityRetryLimit">连续错误上限</span>
+                <span class="setting-input-control">
+                  <input id="capacityRetryLimit" type="number" min="1" max="100" step="1" inputmode="numeric" value="10" aria-label="连续错误上限">
+                  <span class="setting-unit" data-i18n="web.advanced.capacityRetryUnit">次</span>
+                </span>
+              </label>
+              <p id="capacityRetryStatus" class="setting-save-status" aria-live="polite" data-i18n="web.advanced.capacityRetryEffective">达到上限后停止当前任务。</p>
+            </article>
+
             <article class="panel">
               <h3 data-i18n="web.advanced.projects">Codex 项目</h3>
               <div class="actions">
