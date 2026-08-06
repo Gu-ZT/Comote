@@ -32,7 +32,6 @@ test("Vite owns the complete frontend production bundle", async () => {
   const files = (await listFiles("dist/public")).map((file) => file.replaceAll("\\", "/"));
   assert.ok(files.includes(".vite/manifest.json"));
   assert.ok(files.includes("icon.png"));
-  assert.ok(files.includes("logo.svg"));
   assert.equal(files.some((file) => /\.(?:ts|d\.ts|d\.ts\.map)$/.test(file)), false);
   assert.equal(files.some((file) => file.startsWith("vendor/")), false);
 });

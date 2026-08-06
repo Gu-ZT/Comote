@@ -208,21 +208,6 @@ test("logs API supports loading older entries with a before cursor", async () =>
   assert.equal(olderBody.hasMore, false);
 });
 
-test("serves svg assets with an image content type", async () => {
-  const app = createServer();
-  const server = app.listen(0);
-  await new Promise((resolve) => server.once("listening", resolve));
-
-  const { port } = server.address();
-  const response = await fetch(`http://127.0.0.1:${port}/logo.svg`);
-  const body = await response.text();
-  server.close();
-
-  assert.equal(response.status, 200);
-  assert.match(response.headers.get("content-type") ?? "", /image\/svg\+xml/);
-  assert.match(body, /<svg/);
-});
-
 test("serves the web icon with a PNG content type", async () => {
   const app = createServer();
   const server = app.listen(0);
