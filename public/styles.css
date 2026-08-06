@@ -510,7 +510,7 @@ button,
 
 /* ── Section blocks ── */
 .section-block,
-.advanced,
+.settings-page,
 .system-notice {
   width: min(100% - 88px, 980px);
   margin: 0 auto 38px;
@@ -1387,14 +1387,14 @@ code {
 /* ============================================================
    ADVANCED SECTION (details/summary)
    ============================================================ */
-.advanced {
+.settings-page {
   margin-bottom: 36px;
   background: var(--surface);
   border-radius: var(--radius-lg);
   box-shadow: var(--shadow-md);
 }
 
-.advanced summary {
+.settings-page summary {
   cursor: pointer;
   padding: 16px 20px;
   color: var(--muted);
@@ -1405,11 +1405,11 @@ code {
   list-style: none;
 }
 
-.advanced summary::-webkit-details-marker {
+.settings-page summary::-webkit-details-marker {
   display: none;
 }
 
-.advanced summary::after {
+.settings-page summary::after {
   content: "›";
   margin-left: auto;
   float: right;
@@ -1418,11 +1418,11 @@ code {
   transition: transform 0.15s;
 }
 
-.advanced[open] summary::after {
+.settings-page[open] summary::after {
   transform: rotate(90deg);
 }
 
-.advanced-grid {
+.settings-grid {
   display: grid;
   grid-template-columns: minmax(0, 760px);
   justify-content: center;
@@ -2331,14 +2331,14 @@ code {
   background: var(--surface);
 }
 
-.advanced {
+.settings-page {
   margin-bottom: 0;
   background: transparent;
   border-radius: 0;
   box-shadow: none;
 }
 
-.advanced-grid {
+.settings-grid {
   grid-template-columns: minmax(0, 760px);
   justify-content: center;
   gap: 16px;
@@ -2489,7 +2489,7 @@ code {
 
 @media (max-width: 1100px) {
   #users .user-grid,
-  .advanced-grid {
+  .settings-grid {
     grid-template-columns: minmax(0, 1fr);
     justify-content: stretch;
   }
@@ -2560,7 +2560,7 @@ code {
 
   .user-grid,
   #users .user-grid,
-  .advanced-grid {
+  .settings-grid {
     grid-template-columns: minmax(0, 1fr);
   }
 }

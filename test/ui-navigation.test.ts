@@ -52,9 +52,9 @@ test("conversation history uses a project tree and split message reader", async 
   assert.match(html, /id="conversationMessages" class="conversation-messages"/);
   assert.match(html, /id="conversationMessageList" class="conversation-message-list"/);
   assert.doesNotMatch(html, /id="conversationList"/);
-  const advancedMarkup = html.slice(html.indexOf('<section id="advanced"'), html.indexOf('<section id="about"'));
-  assert.doesNotMatch(advancedMarkup, /web\.advanced\.projects|id="projects"|id="discoverProjects"/);
-  assert.doesNotMatch(advancedMarkup, /web\.advanced\.threads|id="threads"|id="threadsProjectSelect"/);
+  const settingsMarkup = html.slice(html.indexOf('<section id="settings"'), html.indexOf('<section id="about"'));
+  assert.doesNotMatch(settingsMarkup, /web\.advanced\.projects|id="projects"|id="discoverProjects"/);
+  assert.doesNotMatch(settingsMarkup, /web\.advanced\.threads|id="threads"|id="threadsProjectSelect"/);
   assert.match(js, /const OPENAI_AVATAR_ICON = `<svg/);
   assert.match(js, /const USER_AVATAR_ICON = `<svg/);
   assert.match(js, /async function loadOlderConversationMessages/);
@@ -114,7 +114,7 @@ test("phone commands render as a complete copyable list with tooltips", async ()
   assert.match(css, /max-width:\s*min\(320px, calc\(100vw - 40px\)\)/);
 });
 
-test("advanced settings expose a persistent Codex connector selector", async () => {
+test("settings expose a persistent Codex connector selector", async () => {
   const [html, js, css] = await Promise.all([
     readFile("public/index.html", "utf8"),
     readFile("dist/public/app.js", "utf8"),
@@ -131,7 +131,10 @@ test("advanced settings expose a persistent Codex connector selector", async () 
   assert.match(js, /capacityRetryLimit: next\.limit/);
   assert.match(css, /\.segmented-selector\s*\{[^}]*grid-template-columns:\s*repeat\(2/s);
   assert.match(css, /\.capacity-retry-limit-field\s*\{/);
-  assert.match(css, /\.advanced-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 760px\)[^}]*justify-content:\s*center/s);
+  assert.match(html, /href="#settings"[\s\S]*data-i18n="web\.nav\.settings">设置<\/span>/);
+  assert.match(html, /id="settings" class="section-block app-page settings-page"/);
+  assert.match(js, /advanced: "settings"/);
+  assert.match(css, /\.settings-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 760px\)[^}]*justify-content:\s*center/s);
 });
 
 test("about cards use the same centered single-column width as settings", async () => {

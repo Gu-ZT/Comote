@@ -29,6 +29,15 @@ test("Vite discovers every locale JSON and reads its display name", async () => 
   }
 });
 
+test("frontend locale JSON files do not contain duplicate keys", async () => {
+  const files = (await readdir("src/i18n")).filter((file) => file.endsWith(".json"));
+  for (const file of files) {
+    const source = await readFile(`src/i18n/${file}`, "utf8");
+    const keys = [...source.matchAll(/^\s*"([^"]+)"\s*:/gm)].map((match) => match[1]);
+    assert.equal(new Set(keys).size, keys.length, `${file} contains duplicate keys`);
+  }
+});
+
 test("frontend locales all share the same key set", () => {
   const base = Object.keys(webDict(WEB_DEFAULT)).sort();
   for (const loc of WEB_LOCALES) {
@@ -54,6 +63,7 @@ test("tWeb localizes and falls back", () => {
   assert.equal(tWeb("web.nav.connectPhone"), "Connect phone");
   assert.equal(setWebLocale("zh"), "zh-CN");
   assert.equal(tWeb("web.nav.connectPhone"), "连接手机");
+  assert.equal(tWeb("web.settings.pageTitle"), "设置");
   setWebLocale("xx"); // unknown -> default zh
   assert.equal(tWeb("web.nav.connectPhone"), "连接手机");
   assert.equal(tWeb("__missing__"), "__missing__");

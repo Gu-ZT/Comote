@@ -2134,7 +2134,7 @@ const NAV_LABEL_KEYS = {
   users: "web.nav.users",
   conversation: "web.nav.conversation",
   logs: "web.nav.logs",
-  advanced: "web.nav.advanced",
+  settings: "web.nav.settings",
   about: "web.about.title",
 };
 
@@ -2143,7 +2143,7 @@ function setupNavigation() {
   const pages = Object.keys(NAV_LABEL_KEYS)
     .map((id) => document.getElementById(id))
     .filter(Boolean);
-  const pageAliases = { codexNotice: "connectPhone", readiness: "connectPhone" };
+  const pageAliases = { advanced: "settings", codexNotice: "connectPhone", readiness: "connectPhone" };
 
   function activate(sectionId) {
     const requestedId = pageAliases[sectionId] ?? sectionId;
