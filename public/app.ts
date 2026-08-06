@@ -2158,6 +2158,7 @@ function setupNavigation() {
     for (const page of pages) {
       page.classList.toggle("active", page.id === pageId);
     }
+    document.body.dataset.activePage = pageId;
 
     window.scrollTo({ top: 0, behavior: "auto" });
     if (pageId === "logs") {

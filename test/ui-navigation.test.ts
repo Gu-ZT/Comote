@@ -59,8 +59,16 @@ test("conversation history uses a project tree and split message reader", async 
   assert.match(js, /const USER_AVATAR_ICON = `<svg/);
   assert.match(js, /async function loadOlderConversationMessages/);
   assert.match(js, /prependedTranscriptScrollTop/);
+  assert.match(js, /document\.body\.dataset\.activePage = pageId/);
+  const conversationMarkup = html.slice(html.indexOf('<section id="conversation"'), html.indexOf('<section id="logs"'));
+  assert.doesNotMatch(conversationMarkup, /class="section-heading"/);
+  assert.match(css, /body\[data-active-page="conversation"\]\s*\{[^}]*height:\s*100vh[^}]*overflow:\s*hidden/s);
+  assert.match(css, /body\[data-active-page="conversation"\] \.main-pane\s*\{[^}]*grid-template-rows:\s*auto minmax\(0, 1fr\)[^}]*overflow:\s*hidden/s);
+  assert.match(css, /body\[data-active-page="conversation"\] \.top-bar-actions\s*\{[^}]*grid-template-columns:\s*max-content max-content[^}]*justify-content:\s*flex-end/s);
   assert.match(css, /\.conversation-browser\s*\{[^}]*grid-template-columns:\s*300px minmax\(0, 1fr\)/s);
+  assert.match(css, /\.conversation-browser\s*\{[^}]*height:\s*100%[^}]*overflow:\s*hidden/s);
   assert.match(css, /\.conversation-message-user\s*\{[^}]*flex-direction:\s*row-reverse/s);
+  assert.match(css, /\.conversation-tree\s*\{[^}]*overflow-y:\s*auto/s);
   assert.match(css, /\.conversation-messages\s*\{[^}]*overflow-y:\s*auto/s);
 });
 
