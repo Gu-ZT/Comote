@@ -2345,6 +2345,14 @@ code {
   padding: 0;
 }
 
+.about-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 760px);
+  justify-content: center;
+  align-items: start;
+  gap: 16px;
+}
+
 .connector-preference-panel {
   align-self: start;
 }

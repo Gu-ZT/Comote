@@ -134,6 +134,17 @@ test("advanced settings expose a persistent Codex connector selector", async () 
   assert.match(css, /\.advanced-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 760px\)[^}]*justify-content:\s*center/s);
 });
 
+test("about cards use the same centered single-column width as settings", async () => {
+  const [html, css] = await Promise.all([
+    readFile("public/index.html", "utf8"),
+    readFile("public/styles.css", "utf8"),
+  ]);
+
+  const aboutMarkup = html.slice(html.indexOf('<section id="about"'));
+  assert.match(aboutMarkup, /<div class="about-grid">/);
+  assert.match(css, /\.about-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 760px\)[^}]*justify-content:\s*center/s);
+});
+
 test("Tauri external links use the real bridge and keep a browser fallback", async () => {
   const [js, config] = await Promise.all([
     readFile("dist/public/app.js", "utf8"),
