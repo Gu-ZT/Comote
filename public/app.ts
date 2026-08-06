@@ -231,7 +231,6 @@ async function renderOnce() {
 
   renderReadiness(status.value, identities, channels);
   renderChannelDropdown(channels);
-  await renderConversation(status.value, projects.value);
 }
 
 function renderReadiness(status, identitiesResult, channels) {
@@ -1872,39 +1871,6 @@ document.querySelector("#threads")?.addEventListener("click", async (event) => {
   panel.innerHTML = html;
   rememberThreadDetail(row, panel);
 });
-
-document.querySelector("#conversationTree")?.addEventListener("click", async (event) => {
-  const loadMore = event.target.closest("[data-project-load-more]");
-  if (loadMore) {
-    const projectPath = loadMore.dataset.projectLoadMore;
-    const state = conversationProjectState.get(projectPath);
-    if (state?.cursor) await loadConversationProjectThreads(projectPath, { cursor: state.cursor });
-    return;
-  }
-  const threadNode = event.target.closest(".conversation-thread-node");
-  if (threadNode) {
-    const projectPath = threadNode.dataset.projectPath;
-    const threadId = threadNode.dataset.threadId;
-    const state = conversationProjectState.get(projectPath);
-    const thread = state?.items.find((item) => conversationThreadKey(item) === threadId);
-    if (thread) await openConversationThread(projectPath, thread);
-    return;
-  }
-  const projectNode = event.target.closest(".conversation-project-node");
-  if (!projectNode) return;
-  const projectPath = projectNode.dataset.projectPath;
-  const state = conversationProjectState.get(projectPath);
-  if (!state) return;
-  state.expanded = !state.expanded;
-  paintConversationTree();
-  if (state.expanded && !state.loaded) {
-    await loadConversationProjectThreads(projectPath);
-  }
-});
-
-document.querySelector("#conversationMessages")?.addEventListener("scroll", () => {
-  loadOlderConversationMessages().catch(() => {});
-}, { passive: true });
 
 function startAutoRefresh() {
   if (refreshTimer) {
