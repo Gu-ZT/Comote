@@ -2,6 +2,7 @@ import { resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import { defineConfig } from "vite";
+import vue from "@vitejs/plugin-vue";
 
 const projectRoot = fileURLToPath(new URL(".", import.meta.url));
 const frontendRoot = resolve(projectRoot, "public");
@@ -11,6 +12,7 @@ function normalizedFacade(id: string | null | undefined): string {
 }
 
 export default defineConfig({
+  plugins: [vue()],
   root: frontendRoot,
   base: "./",
   publicDir: false,
@@ -43,6 +45,7 @@ export default defineConfig({
           const facade = normalizedFacade(chunkInfo.facadeModuleId);
           if (facade.endsWith("/app.ts")) return "app.js";
           if (facade.endsWith("/i18n.ts")) return "i18n.js";
+          if (facade.endsWith("/main.ts")) return "app.js";
           return "assets/[name]-[hash].js";
         },
         chunkFileNames: "assets/[name]-[hash].js",

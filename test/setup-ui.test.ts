@@ -3,12 +3,12 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 test("setup flow starts with phone channels instead of asking users to connect Codex", async () => {
-  const html = await readFile("public/index.html", "utf8");
+  const html = await readFile("public/App.vue", "utf8");
   const setupStart = html.indexOf('<section id="connectPhone"');
   const setupEnd = html.indexOf('<section id="approvals"', setupStart);
   const setupFlow = html.slice(setupStart, setupEnd);
 
-  assert.match(setupFlow, /<h2[^>]*>连接手机<\/h2>/);
+  assert.match(setupFlow, /<h2>\{\{ t\("web\.connect\.title"\) \}\}<\/h2>/);
   // C4: the two hardcoded feishu/wechat cards were replaced by one empty
   // container that app.js fills from the registry-driven GET /api/channels, so
   // the cards (incl. 微信/飞书 headings, login areas, domain select, bind buttons)

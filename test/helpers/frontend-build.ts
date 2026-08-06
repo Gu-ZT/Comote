@@ -24,3 +24,7 @@ export async function readFrontendEntry(source: string): Promise<string> {
   }
   return readFile(join("dist", "public", entry.file), "utf8");
 }
+
+export async function readFrontendSource(source: string): Promise<string> {
+  return readFile(source, "utf8");
+}

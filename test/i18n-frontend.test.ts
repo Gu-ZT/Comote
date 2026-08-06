@@ -2,17 +2,16 @@ import test from "node:test";
 import assert from "node:assert/strict";
 import { readdir, readFile } from "node:fs/promises";
 
-import { readFrontendEntry } from "./helpers/frontend-build.js";
+import { readFrontendSource } from "./helpers/frontend-build.js";
 
-const builtI18nSource = await readFrontendEntry("i18n.ts");
-const builtI18n = await import(
-  `data:text/javascript;base64,${Buffer.from(builtI18nSource).toString("base64")}`
-);
+const builtI18n = await import(new URL("../dist/public/i18n.js", import.meta.url).href);
 const {
   WEB_DEFAULT,
   WEB_LOCALES,
   WEB_LOCALE_NAMES,
+  i18n,
   normalizeWebLocale,
+  webLocale,
   webDict,
   tWeb,
   setWebLocale,
@@ -77,5 +76,18 @@ test("command tooltips localize both effect and usage", () => {
   const text = tWeb("web.commands.tooltip.automode");
   assert.match(text, /Effect:/);
   assert.match(text, /Usage: \/automode <true\|false>/);
+  setWebLocale("zh");
+});
+
+test("Vue I18n owns the frontend message catalog", async () => {
+  const source = await readFrontendSource("public/i18n.ts");
+  assert.match(source, /createI18n\(/);
+  assert.match(source, /fallbackLocale:\s*WEB_DEFAULT/);
+  assert.match(source, /messages:\s*DICTS/);
+  assert.match(source, /export const webLocale = ref\(WEB_DEFAULT\)/);
+
+  setWebLocale("en");
+  assert.equal(webLocale.value, "en-US");
+  assert.equal(i18n.global.t("web.nav.connectPhone"), "Connect phone");
   setWebLocale("zh");
 });

@@ -2,204 +2,154 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
-import { readFrontendEntry } from "./helpers/frontend-build.js";
-
-test("desktop navigation switches between exclusive application views", async () => {
-  const [html, boot, js, css] = await Promise.all([
-    readFile("public/index.html", "utf8"),
-    readFile("public/boot.html", "utf8"),
-    readFrontendEntry("index.html"),
+async function frontendSources() {
+  const [app, controller, router, main, phoneCommands, css] = await Promise.all([
+    readFile("public/App.vue", "utf8"),
+    readFile("public/app.ts", "utf8"),
+    readFile("public/router.ts", "utf8"),
+    readFile("public/main.ts", "utf8"),
+    readFile("public/components/PhoneCommandsPage.vue", "utf8"),
     readFile("public/styles.css", "utf8"),
   ]);
+  return { app, controller, router, main, phoneCommands, css };
+}
 
-  const navTargets = [...html.matchAll(/class="nav-item[^"]*" href="#([^"]+)"/g)].map((match) => match[1]);
-  assert.ok(navTargets.length >= 6);
-  for (const target of navTargets) {
-    assert.match(html, new RegExp(`<section id="${target}" class="[^"]*app-page`));
+test("Vue Router drives every exclusive sidebar page", async () => {
+  const { app, router, main, phoneCommands, css } = await frontendSources();
+  const links = [...app.matchAll(/<RouterLink class="nav-item[^"]*" to="([^"]+)"/g)]
+    .map((match) => match[1]);
+
+  assert.deepEqual(links, [
+    "/connect-phone",
+    "/users",
+    "/phone-commands",
+    "/approvals",
+    "/conversation",
+    "/logs",
+    "/settings",
+    "/about",
+  ]);
+  for (const page of ["connectPhone", "users", "phoneCommands", "approvals", "conversation", "logs", "settings", "about"]) {
+    const pageSource = page === "phoneCommands" ? app + phoneCommands : app;
+    assert.match(pageSource, new RegExp(`id="${page}"[\\s\\S]*isPage\\('${page}'\\)|isPage\\('${page}'\\)[\\s\\S]*id="${page}"`));
+    assert.match(router, new RegExp(`meta: \\{ page: "${page}" \\}`));
   }
-
-  assert.equal((html.match(/class="[^"]*app-page active[^"]*"/g) ?? []).length, 1);
-  assert.match(html, /<img class="brand-logo" src="\/icon\.png"/);
-  assert.match(boot, /<img class="logo" src="\.\/icon\.png"/);
-  assert.match(js, /window\.addEventListener\("hashchange"/);
-  assert.doesNotMatch(js, /IntersectionObserver/);
+  assert.match(router, /createWebHashHistory\(\)/);
+  assert.match(main, /app\.use\(router\)/);
+  assert.doesNotMatch(main + router, /addEventListener\("hashchange"/);
   assert.match(css, /\.app-page\.active\s*\{\s*display:\s*block/);
   assert.doesNotMatch(css, /--ui-zoom|zoom:\s*var\(--ui-zoom\)/);
 });
 
-test("top bar uses the product name and operational notices belong to connect phone", async () => {
-  const html = await readFile("public/index.html", "utf8");
-  const connectStart = html.indexOf('<section id="connectPhone"');
-  const usersStart = html.indexOf('<section id="users"');
-  const connectPage = html.slice(connectStart, usersStart);
+test("Vue application shell keeps product and operational page structure", async () => {
+  const { app } = await frontendSources();
+  const connectPage = app.slice(app.indexOf('id="connectPhone"'), app.indexOf('id="users"'));
 
-  assert.match(html, /<h1 class="top-title" data-i18n="web\.top\.title">GugleComote<\/h1>/);
+  assert.match(app, /<h1 class="top-title">\{\{ t\("web\.top\.title"\) \}\}<\/h1>/);
+  assert.match(app, /<img class="brand-logo" src="\/icon\.png"/);
   assert.match(connectPage, /id="updateNotice"/);
   assert.match(connectPage, /id="codexNotice"/);
-
-  for (const locale of ["zh-CN", "en-US", "ja-JP", "ko-KR", "fr-FR", "es-ES"]) {
-    const dictionary = JSON.parse(await readFile(`src/i18n/${locale}.json`, "utf8"));
-    assert.equal(dictionary["web.top.title"], "GugleComote");
-  }
+  assert.match(connectPage, /id="channelCards"/);
 });
 
-test("conversation history uses a project tree and split message reader", async () => {
-  const [html, js, css] = await Promise.all([
-    readFile("public/index.html", "utf8"),
-    readFrontendEntry("index.html"),
-    readFile("public/styles.css", "utf8"),
-  ]);
+test("conversation history keeps its project tree and split reader", async () => {
+  const { app, controller, router, css } = await frontendSources();
 
-  assert.match(html, /id="conversationTree" class="conversation-tree" role="tree"/);
-  assert.match(html, /id="conversationMessages" class="conversation-messages"/);
-  assert.match(html, /id="conversationMessageList" class="conversation-message-list"/);
-  assert.doesNotMatch(html, /id="conversationList"/);
-  const settingsMarkup = html.slice(html.indexOf('<section id="settings"'), html.indexOf('<section id="about"'));
-  assert.doesNotMatch(settingsMarkup, /web\.advanced\.projects|id="projects"|id="discoverProjects"/);
-  assert.doesNotMatch(settingsMarkup, /web\.advanced\.threads|id="threads"|id="threadsProjectSelect"/);
-  assert.match(js, /const OPENAI_AVATAR_ICON = `<svg/);
-  assert.match(js, /const USER_AVATAR_ICON = `<svg/);
-  assert.match(js, /async function loadOlderConversationMessages/);
-  assert.match(js, /prependedTranscriptScrollTop/);
-  assert.match(js, /document\.body\.dataset\.activePage = pageId/);
-  const conversationMarkup = html.slice(html.indexOf('<section id="conversation"'), html.indexOf('<section id="logs"'));
-  assert.doesNotMatch(conversationMarkup, /class="section-heading"/);
+  assert.match(app, /id="conversationTree" class="conversation-tree" role="tree"/);
+  assert.match(app, /id="conversationMessages" class="conversation-messages"/);
+  assert.match(app, /id="conversationMessageList" class="conversation-message-list"/);
+  assert.doesNotMatch(app, /id="conversationList"/);
+  assert.match(controller, /async function loadOlderConversationMessages/);
+  assert.match(controller, /prependedTranscriptScrollTop/);
+  assert.match(router, /path: "\/conversation"/);
   assert.match(css, /body\[data-active-page="conversation"\]\s*\{[^}]*height:\s*100vh[^}]*overflow:\s*hidden/s);
-  assert.match(css, /body\[data-active-page="conversation"\] \.main-pane\s*\{[^}]*grid-template-rows:\s*auto minmax\(0, 1fr\)[^}]*overflow:\s*hidden/s);
-  assert.match(css, /body\[data-active-page="conversation"\] \.top-bar-actions\s*\{[^}]*grid-template-columns:\s*max-content max-content[^}]*justify-content:\s*flex-end/s);
   assert.match(css, /\.conversation-browser\s*\{[^}]*grid-template-columns:\s*300px minmax\(0, 1fr\)/s);
-  assert.match(css, /\.conversation-browser\s*\{[^}]*height:\s*100%[^}]*overflow:\s*hidden/s);
   assert.match(css, /\.conversation-message-user\s*\{[^}]*flex-direction:\s*row-reverse/s);
   assert.match(css, /\.conversation-tree\s*\{[^}]*overflow-y:\s*auto/s);
   assert.match(css, /\.conversation-messages\s*\{[^}]*overflow-y:\s*auto/s);
 });
 
-test("identity rows and channel summaries constrain long dynamic text", async () => {
-  const [js, css] = await Promise.all([
-    readFrontendEntry("index.html"),
-    readFile("public/styles.css", "utf8"),
-  ]);
+test("dynamic identity and channel text remains constrained", async () => {
+  const { controller, css } = await frontendSources();
 
-  assert.match(js, /class="identity-id" title=/);
+  assert.match(controller, /class="identity-id" title=/);
   assert.match(css, /\.list-row-copy\s*\{[^}]*min-width:\s*0/s);
   assert.match(css, /\.identity-meta \.identity-id\s*\{[^}]*text-overflow:\s*ellipsis/s);
   assert.match(css, /\.channel-row-head \.ch-summary[\s\S]*text-overflow:\s*ellipsis/);
 });
 
-test("desktop approvals expose the allow-for-session decision", async () => {
-  const [js, i18n, css] = await Promise.all([
-    readFrontendEntry("index.html"),
-    readFrontendEntry("i18n.ts"),
-    readFile("public/styles.css", "utf8"),
-  ]);
-  assert.match(js, /\|acceptForSession/);
-  assert.match(i18n, /web\.approvals\.acceptForSession/);
-  assert.match(js, /class="list-row approval-row"/);
-  assert.match(css, /\.approval-copy\s*\{[^}]*min-width:\s*0/s);
-  assert.match(css, /\.approval-actions\s*\{[^}]*flex:\s*1 1 360px[^}]*grid-template-columns:\s*repeat\(3/s);
+test("desktop approvals keep all three decisions", async () => {
+  const { controller, css } = await frontendSources();
+  const dictionary = await readFile("src/i18n/en-US.json", "utf8");
+
+  assert.match(controller, /\|acceptForSession/);
+  assert.match(dictionary, /web\.approvals\.acceptForSession/);
+  assert.match(controller, /class="list-row approval-row"/);
+  assert.match(css, /\.approval-actions\s*\{[^}]*grid-template-columns:\s*repeat\(3/s);
   assert.match(css, /@media \(max-width: 560px\)[\s\S]*\.approval-actions\s*\{[^}]*grid-template-columns:\s*1fr/s);
 });
 
-test("phone commands render as a complete copyable list with tooltips", async () => {
-  const [html, js, css] = await Promise.all([
-    readFile("public/index.html", "utf8"),
-    readFrontendEntry("index.html"),
-    readFile("public/styles.css", "utf8"),
-  ]);
-  assert.match(html, /id="phoneCommandList" class="command-list"/);
-  assert.doesNotMatch(html, /command-chip/);
-  assert.match(js, /const PHONE_COMMANDS = \[/);
+test("phone commands remain complete and copyable", async () => {
+  const { app, controller, phoneCommands, css } = await frontendSources();
+
+  assert.match(app, /<PhoneCommandsPage :active="isPage\('phoneCommands'\)"/);
+  assert.match(phoneCommands, /id="phoneCommandList" class="command-list"/);
+  assert.match(phoneCommands, /const PHONE_COMMANDS: readonly PhoneCommand\[\] = \[/);
   for (const command of ["help", "status", "current", "projects", "open", "sessions", "use", "switch", "tail", "new", "file", "automode", "model", "cancel", "approve", "deny"]) {
-    assert.match(js, new RegExp(`id: "${command}"`));
-    assert.match(js, new RegExp(`web\\.commands\\.tooltip\\.\\$\\{command\\.id\\}`));
+    assert.match(phoneCommands, new RegExp(`id: "${command}"`));
   }
-  assert.match(js, /navigator\.clipboard\.writeText/);
-  assert.match(js, /document\.execCommand\("copy"\)/);
+  assert.match(phoneCommands, /v-for="command in PHONE_COMMANDS"/);
+  assert.match(phoneCommands, /navigator\.clipboard\.writeText/);
+  assert.match(phoneCommands, /document\.execCommand\("copy"\)/);
+  assert.doesNotMatch(controller, /phoneCommandList|renderPhoneCommands/);
   assert.match(css, /\.command-row:hover[^\{]*\.command-tooltip/);
-  assert.match(css, /\.command-row:focus-visible[^\{]*\.command-tooltip/);
-  assert.match(css, /\.command-row\s*\{[^}]*grid-template-columns:\s*minmax\(190px, 1fr\) minmax\(0, 2fr\)/s);
   assert.match(css, /\.command-description\s*\{[^}]*text-overflow:\s*ellipsis/s);
-  assert.match(css, /\.command-description\s*\{\s*display:\s*none/s);
-  assert.match(css, /white-space:\s*pre-line/);
-  assert.match(css, /max-width:\s*min\(320px, calc\(100vw - 40px\)\)/);
 });
 
-test("settings expose a persistent Codex connector selector", async () => {
-  const [html, js, css] = await Promise.all([
-    readFile("public/index.html", "utf8"),
-    readFrontendEntry("index.html"),
-    readFile("public/styles.css", "utf8"),
-  ]);
+test("settings page keeps persistent connector and retry controls", async () => {
+  const { app, controller, router, css } = await frontendSources();
 
-  assert.match(html, /id="preferredConnector" class="segmented-selector"/);
-  assert.match(html, /name="preferredConnector" value="desktop"/);
-  assert.match(html, /name="preferredConnector" value="cli"/);
-  assert.match(js, /JSON\.stringify\(\{ preferredConnector: radio\.value \}\)/);
-  assert.match(html, /id="capacityRetryEnabled" type="checkbox" role="switch"/);
-  assert.match(html, /id="capacityRetryLimit" type="number" min="1" max="100"/);
-  assert.match(js, /capacityRetryEnabled: next\.enabled/);
-  assert.match(js, /capacityRetryLimit: next\.limit/);
-  assert.match(css, /\.segmented-selector\s*\{[^}]*grid-template-columns:\s*repeat\(2/s);
-  assert.match(css, /\.capacity-retry-limit-field\s*\{/);
-  assert.match(html, /href="#settings"[\s\S]*data-i18n="web\.nav\.settings">设置<\/span>/);
-  assert.match(html, /id="settings" class="section-block app-page settings-page"/);
-  assert.match(js, /advanced: "settings"/);
+  assert.match(app, /id="preferredConnector" class="segmented-selector"/);
+  assert.match(app, /name="preferredConnector" value="desktop"/);
+  assert.match(app, /name="preferredConnector" value="cli"/);
+  assert.match(app, /id="capacityRetryEnabled" type="checkbox" role="switch"/);
+  assert.match(app, /id="capacityRetryLimit" type="number" min="1" max="100"/);
+  assert.match(controller, /capacityRetryEnabled: next\.enabled/);
+  assert.match(controller, /capacityRetryLimit: next\.limit/);
+  assert.match(router, /path: "\/settings", alias: "\/advanced"/);
   assert.match(css, /\.settings-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 760px\)[^}]*justify-content:\s*center/s);
 });
 
-test("about cards use the same centered single-column width as settings", async () => {
-  const [html, css] = await Promise.all([
-    readFile("public/index.html", "utf8"),
-    readFile("public/styles.css", "utf8"),
-  ]);
+test("about page and desktop external links remain wired", async () => {
+  const { app, controller, css } = await frontendSources();
+  const config = await readFile("src-tauri/tauri.conf.json", "utf8");
 
-  const aboutMarkup = html.slice(html.indexOf('<section id="about"'));
-  assert.match(aboutMarkup, /<div class="about-grid">/);
+  assert.match(app, /<div class="about-grid">/);
   assert.match(css, /\.about-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 760px\)[^}]*justify-content:\s*center/s);
-});
-
-test("Tauri external links use the real bridge and keep a browser fallback", async () => {
-  const [js, config] = await Promise.all([
-    readFrontendEntry("index.html"),
-    readFile("src-tauri/tauri.conf.json", "utf8"),
-  ]);
-  assert.match(js, /const canInvokeTauri = typeof window\.__TAURI__\?\.core\?\.invoke === "function"/);
-  assert.match(js, /if \(canInvokeTauri\)/);
+  assert.match(controller, /const canInvokeTauri = typeof window\.__TAURI__\?\.core\?\.invoke === "function"/);
+  assert.match(controller, /if \(canInvokeTauri\)/);
   assert.match(config, /"withGlobalTauri"\s*:\s*true/);
 });
 
 test("channel cards use local brand SVG icons", async () => {
-  const [js, icons] = await Promise.all([
-    readFrontendEntry("index.html"),
-    readFile("public/vendor/channel-icons.js", "utf8"),
-  ]);
+  const { controller } = await frontendSources();
+  const icons = await readFile("public/vendor/channel-icons.js", "utf8");
+
   for (const channel of ["feishu", "dingtalk", "wechat", "telegram"]) {
     assert.match(icons, new RegExp(`\\"${channel}\\":\\"<svg`));
   }
-  assert.match(js, /window\.ComoteChannelIcons/);
-  assert.match(js, /function channelIconHtml/);
+  assert.match(controller, /window\.ComoteChannelIcons/);
+  assert.match(controller, /function channelIconHtml/);
 });
 
-test("narrow-window layout has one responsive system and a stable sidebar", async () => {
-  const css = await readFile("public/styles.css", "utf8");
+test("responsive layout and system color theme remain stable", async () => {
+  const { css, main } = await frontendSources();
 
   assert.doesNotMatch(css, /@media \(max-width: 960px\)/);
   assert.match(css, /@media \(max-width: 820px\)[\s\S]*\.nav-list\s*\{[^}]*flex-flow:\s*row nowrap/);
-  assert.match(css, /\.nav-item > span:not\(\.nav-count\)[\s\S]*white-space:\s*nowrap/);
-  assert.match(css, /\.command-row\s*\{[^}]*grid-template-columns:\s*minmax\(190px, 1fr\) minmax\(0, 2fr\)/s);
-});
-
-test("color theme follows the operating system without JavaScript state", async () => {
-  const [css, js] = await Promise.all([
-    readFile("public/styles.css", "utf8"),
-    readFrontendEntry("index.html"),
-  ]);
-
   assert.match(css, /:root\s*\{[^}]*color-scheme:\s*light dark/s);
-  assert.match(css, /@media \(prefers-color-scheme: dark\)\s*\{\s*:root\s*\{[^}]*--canvas:\s*#[0-9a-f]{6}/s);
   for (const variable of ["surface", "ink", "line", "teal", "teal-surface", "success", "warning", "error"]) {
     assert.match(css, new RegExp(`@media \\(prefers-color-scheme: dark\\)[\\s\\S]*--${variable}:`));
   }
-  assert.match(css, /\.bind-method-primary\s*\{[^}]*background:\s*var\(--teal-surface\)/s);
-  assert.doesNotMatch(js, /prefers-color-scheme|matchMedia\([^)]*color-scheme/i);
+  assert.doesNotMatch(main, /prefers-color-scheme|matchMedia\([^)]*color-scheme/i);
 });

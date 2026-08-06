@@ -33,9 +33,7 @@ import {
   applyTranslations,
   setWebLocale,
   getWebLocale,
-  WEB_LOCALES,
   WEB_DEFAULT,
-  WEB_LOCALE_NAMES,
   normalizeWebLocale,
 } from "./i18n.js";
 
@@ -326,30 +324,10 @@ let threadsCursor = null; // nextCursor for the next page; null = no more pages
 let threadsPagedBeyondFirst = false; // user clicked "load more" at least once
 const THREADS_PAGE_SIZE = 20;
 
-const PHONE_COMMANDS = [
-  { id: "help", usage: "/help", descriptionKey: "web.commands.description.help" },
-  { id: "status", usage: "/status", descriptionKey: "web.commands.description.status" },
-  { id: "current", usage: "/current", descriptionKey: "web.commands.description.current" },
-  { id: "projects", usage: "/projects", descriptionKey: "web.commands.description.projects" },
-  { id: "open", usage: "/open <number|path>", descriptionKey: "web.commands.description.open" },
-  { id: "sessions", usage: "/sessions", descriptionKey: "web.commands.description.sessions" },
-  { id: "use", usage: "/use <number|id>", descriptionKey: "web.commands.description.use" },
-  { id: "switch", usage: "/switch <number|id>", descriptionKey: "web.commands.description.switch" },
-  { id: "tail", usage: "/tail [n]", descriptionKey: "web.commands.description.tail" },
-  { id: "new", usage: "/new <message>", descriptionKey: "web.commands.description.new" },
-  { id: "file", usage: "/file <path>", descriptionKey: "web.commands.description.file" },
-  { id: "automode", usage: "/automode <true|false>", descriptionKey: "web.commands.description.automode" },
-  { id: "model", usage: "/model", descriptionKey: "web.commands.description.model" },
-  { id: "cancel", usage: "/cancel", descriptionKey: "web.commands.description.cancel" },
-  { id: "approve", usage: "/approve <number>", descriptionKey: "web.commands.description.approve" },
-  { id: "deny", usage: "/deny <number>", descriptionKey: "web.commands.description.deny" },
-];
-
 async function render() {
   // Coalesce instead of dropping: a call arriving mid-render queues one more
-  // pass so a language switch (onLangChange awaits render()) reliably repaints
-  // dynamic tWeb() text at the now-current locale even if it coincides with an
-  // in-flight auto-refresh render.
+  // pass so a language switch reliably repaints dynamic tWeb() text at the
+  // current locale even if it coincides with an in-flight auto-refresh render.
   if (rendering) {
     renderQueued = true;
     return;
@@ -424,7 +402,6 @@ async function renderOnce() {
   renderCandidates(candidates);
   renderChannels(channels);
   renderChannelDropdown(channels);
-  renderPhoneCommands();
   renderApprovals(approvals);
   renderLogs(logs);
   await renderConversation(status.value, projects.value);
@@ -444,25 +421,25 @@ function renderReadiness(status, identitiesResult, channels) {
       done: desktopState === "connected" || desktopState === "available",
       label: tWeb("web.readiness.step1.label"),
       hint: tWeb("web.readiness.step1.hint"),
-      anchor: "#codexNotice",
+      anchor: "#/connect-phone",
     },
     {
       done: bound,
       label: tWeb("web.readiness.step2.label"),
       hint: tWeb("web.readiness.step2.hint"),
-      anchor: "#connectPhone",
+      anchor: "#/connect-phone",
     },
     {
       done: identities.length > 0,
       label: tWeb("web.readiness.step3.label"),
       hint: tWeb("web.readiness.step3.hint"),
-      anchor: "#users",
+      anchor: "#/users",
     },
     {
       done: running,
       label: tWeb("web.readiness.step4.label"),
       hint: tWeb("web.readiness.step4.hint"),
-      anchor: "#connectPhone",
+      anchor: "#/connect-phone",
     },
   ];
   // Hide the whole section once setup is complete — no clutter for return users.
@@ -922,19 +899,6 @@ function renderLogEntries(entries) {
       const detailText = formatLogDetail(entry.detail);
       const detail = detailText ? `<div class="meta log-detail">${escapeHtml(detailText)}</div>` : "";
       return `<li class="log-row log-${escapeAttr(entry.level)}"><span class="log-time">${escapeHtml(formatTime(entry.at))}</span><span><strong>${escapeHtml(entry.message)}</strong>${detail}</span></li>`;
-    })
-    .join("");
-}
-
-function renderPhoneCommands() {
-  const target = document.querySelector("#phoneCommandList");
-  if (!target) return;
-  target.innerHTML = PHONE_COMMANDS
-    .map((command) => {
-      const tooltip = tWeb(`web.commands.tooltip.${command.id}`);
-      const description = tWeb(command.descriptionKey);
-      const tooltipId = `phone-command-${command.id}-tooltip`;
-      return `<button type="button" class="command-row" data-command-id="${escapeAttr(command.id)}" data-copy-command="${escapeAttr(command.usage)}" aria-describedby="${tooltipId}" aria-label="${escapeAttr(command.usage)}: ${escapeAttr(description)}" title="${escapeAttr(tooltip)}"><code>${escapeHtml(command.usage)}</code><span class="command-description">${escapeHtml(description)}</span><span id="${tooltipId}" class="command-tooltip" role="tooltip">${escapeHtml(tooltip)}</span></button>`;
     })
     .join("");
 }
@@ -1711,52 +1675,6 @@ document.querySelector("#refreshLogs").addEventListener("click", async () => {
   await render();
 });
 
-async function copyCommand(text) {
-  if (typeof navigator.clipboard?.writeText === "function") {
-    try {
-      await navigator.clipboard.writeText(text);
-      return true;
-    } catch {
-      // Continue with the legacy fallback for non-secure local origins.
-    }
-  }
-  const textarea = document.createElement("textarea");
-  textarea.value = text;
-  textarea.setAttribute("readonly", "");
-  textarea.style.position = "fixed";
-  textarea.style.opacity = "0";
-  document.body.appendChild(textarea);
-  textarea.select();
-  let copied = false;
-  try {
-    copied = document.execCommand("copy");
-  } catch {
-    copied = false;
-  } finally {
-    textarea.remove();
-  }
-  return copied;
-}
-
-document.querySelector("#phoneCommandList")?.addEventListener("click", async (event) => {
-  const button = event.target.closest("[data-copy-command]");
-  if (!button) return;
-  const command = button.dataset.copyCommand ?? "";
-  const copied = await copyCommand(command);
-  const status = document.querySelector("#commandCopyStatus");
-  if (status) status.textContent = copied ? tWeb("web.commands.copySuccess") : tWeb("web.commands.copyFailed");
-  button.classList.toggle("copied", copied);
-  button.title = copied ? tWeb("web.commands.copySuccess") : tWeb("web.commands.copyFailed");
-  if (copied) {
-    window.setTimeout(() => {
-      if (button.isConnected) {
-        button.classList.remove("copied");
-        button.title = tWeb(`web.commands.tooltip.${button.dataset.commandId ?? ""}`);
-      }
-    }, 1400);
-  }
-});
-
 document.querySelector("#identityForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = event.currentTarget as HTMLFormElement;
@@ -2128,64 +2046,6 @@ function escapeAttr(value) {
   return escapeHtml(value);
 }
 
-// --- Navigation: one application view per side-nav destination. ---
-const NAV_LABEL_KEYS = {
-  connectPhone: "web.nav.connectPhone",
-  phoneCommands: "web.nav.phoneCommands",
-  approvals: "web.approvals.title",
-  users: "web.nav.users",
-  conversation: "web.nav.conversation",
-  logs: "web.nav.logs",
-  settings: "web.nav.settings",
-  about: "web.about.title",
-};
-
-function setupNavigation() {
-  const navItems = [...document.querySelectorAll(".nav-item")];
-  const pages = Object.keys(NAV_LABEL_KEYS)
-    .map((id) => document.getElementById(id))
-    .filter(Boolean);
-  const pageAliases = { advanced: "settings", codexNotice: "connectPhone", readiness: "connectPhone" };
-
-  function activate(sectionId) {
-    const requestedId = pageAliases[sectionId] ?? sectionId;
-    const pageId = pages.some((page) => page.id === requestedId) ? requestedId : "connectPhone";
-
-    for (const item of navItems) {
-      const active = item.getAttribute("href") === `#${pageId}`;
-      item.classList.toggle("active", active);
-      if (active) item.setAttribute("aria-current", "page");
-      else item.removeAttribute("aria-current");
-    }
-    for (const page of pages) {
-      page.classList.toggle("active", page.id === pageId);
-    }
-    document.body.dataset.activePage = pageId;
-
-    window.scrollTo({ top: 0, behavior: "auto" });
-    if (pageId === "logs") {
-      queueMicrotask(maybeLoadMoreLogs);
-    }
-  }
-
-  for (const item of navItems) {
-    item.addEventListener("click", (event) => {
-      const sectionId = item.getAttribute("href").slice(1);
-      if (window.location.hash === `#${sectionId}`) {
-        event.preventDefault();
-        activate(sectionId);
-      }
-    });
-  }
-
-  window.addEventListener("hashchange", () => activate(window.location.hash.slice(1)));
-  const initialId = window.location.hash.slice(1);
-  activate(initialId);
-  if (!initialId || (!NAV_LABEL_KEYS[initialId] && !pageAliases[initialId])) {
-    history.replaceState(null, "", "#connectPhone");
-  }
-}
-
 function renderThreadMessages(messages) {
   return messages
     .map(
@@ -2416,6 +2276,11 @@ function maybeLoadMoreLogs() {
 }
 
 window.addEventListener("scroll", maybeLoadMoreLogs, { passive: true });
+window.addEventListener("comote:route-change", (event: CustomEvent<{ page?: string }>) => {
+  if (event.detail?.page === "logs") {
+    queueMicrotask(maybeLoadMoreLogs);
+  }
+});
 
 document.querySelector("#conversationTree")?.addEventListener("click", async (event) => {
   const loadMore = event.target.closest("[data-project-load-more]");
@@ -2473,44 +2338,21 @@ function settingsLocale(locale) {
   return normalizeWebLocale(locale).split("-")[0].toLowerCase();
 }
 
-function populateLangSelect() {
-  const sel = document.querySelector("#langSelect");
-  if (!sel) {
-    return;
-  }
-  sel.innerHTML = "";
-  for (const loc of WEB_LOCALES) {
-    const opt = document.createElement("option");
-    opt.value = loc;
-    opt.textContent = WEB_LOCALE_NAMES[loc];
-    sel.appendChild(opt);
-  }
-  sel.value = getWebLocale();
-  sel.addEventListener("change", onLangChange);
-}
-
-async function onLangChange(event) {
-  const locale = normalizeWebLocale(event.target.value);
-  try {
-    await getJson("/api/settings", {
-      method: "PUT",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ locale: settingsLocale(locale) }),
-    });
-  } catch {
-    // Keep going; still switch the UI even if persisting the preference failed.
-  }
+window.addEventListener("comote:locale-change", (event) => {
+  const requested = (event as CustomEvent<{ locale?: string }>).detail?.locale;
+  const locale = normalizeWebLocale(requested);
+  void getJson("/api/settings", {
+    method: "PUT",
+    headers: { "content-type": "application/json" },
+    body: JSON.stringify({ locale: settingsLocale(locale) }),
+  }).catch(() => {});
   setWebLocale(locale);
   applyTranslations(document);
-  renderPhoneCommands();
-  // Re-render the version banner too: it sets some strings dynamically (e.g. the
-  // Linux npm-command hint) that applyTranslations would otherwise revert.
-  await refreshVersionStatus().catch(() => {});
-  await render(); // re-run the main render so dynamic tWeb() strings update
-}
+  void refreshVersionStatus().catch(() => {});
+  void render().catch(() => {});
+});
 
 async function init() {
-  setupNavigation();
   setupChannelCards();
   setBridgeStatus(tWeb("web.status.starting"));
   const settings = await safeGet("/api/settings", {
@@ -2541,8 +2383,6 @@ async function init() {
   }
   setWebLocale(locale);
   applyTranslations(document);
-  renderPhoneCommands();
-  populateLangSelect();
   setupPreferredConnectorSelector(settings.value);
   setupCapacityRetrySettings(settings.value);
   const versionData = await refreshVersionStatus();

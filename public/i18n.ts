@@ -1,6 +1,9 @@
 // Frontend i18n engine. Vite expands the locale JSON glob at build time, so
 // adding a file under src/i18n automatically registers another UI language.
 
+import { createI18n } from "vue-i18n";
+import { ref } from "vue";
+
 export type WebDictionary = Record<string, string>;
 
 const LANGUAGE_NAME_KEY = "$language";
@@ -40,6 +43,18 @@ export const WEB_LOCALE_NAMES = Object.freeze(Object.fromEntries(
   localeEntries.map(({ locale, languageName }) => [locale, languageName]),
 )) as Readonly<Record<string, string>>;
 
+export const i18n = createI18n({
+  legacy: false,
+  locale: WEB_DEFAULT,
+  fallbackLocale: WEB_DEFAULT,
+  messages: DICTS,
+});
+
+// Keep the compatibility helpers and Vue templates on the same reactive value.
+// The daemon controller still calls setWebLocale(), while Vue components can
+// bind directly to this ref without maintaining a second locale state.
+export const webLocale = ref(WEB_DEFAULT);
+
 const localeAliases = new Map<string, string>();
 for (const locale of WEB_LOCALES) {
   const normalized = locale.toLowerCase();
@@ -60,15 +75,15 @@ export function normalizeWebLocale(
     ?? WEB_DEFAULT;
 }
 
-let current = WEB_DEFAULT;
-
 export function setWebLocale(locale: string): string {
-  current = normalizeWebLocale(locale);
-  return current;
+  const normalized = normalizeWebLocale(locale);
+  webLocale.value = normalized;
+  i18n.global.locale.value = normalized;
+  return normalized;
 }
 
 export function getWebLocale(): string {
-  return current;
+  return webLocale.value;
 }
 
 export function webDict(locale: string): WebDictionary {
@@ -76,9 +91,12 @@ export function webDict(locale: string): WebDictionary {
 }
 
 export function tWeb(key: string, vars?: Record<string, unknown>): string {
-  const dictionary = DICTS[current] ?? DICTS[WEB_DEFAULT];
-  let text = dictionary[key];
-  if (text === undefined) text = DICTS[WEB_DEFAULT][key];
+  // Read through Vue I18n's message catalog, but interpolate manually so
+  // literal pipes in command syntax (for example `<true|false>`) are not
+  // interpreted as vue-i18n's legacy plural separator.
+  const localeMessages = i18n.global.getLocaleMessage(webLocale.value) as WebDictionary;
+  const fallbackMessages = i18n.global.getLocaleMessage(WEB_DEFAULT) as WebDictionary;
+  let text = localeMessages[key] ?? fallbackMessages[key];
   if (text === undefined) return key;
   return vars
     ? text.replace(/\{(\w+)\}/g, (match, name) =>
@@ -89,7 +107,7 @@ export function tWeb(key: string, vars?: Record<string, unknown>): string {
 
 // data-i18n="key" sets textContent; data-i18n-attr="title:key" sets attributes.
 export function applyTranslations(root = document): void {
-  if (root.documentElement) root.documentElement.lang = current;
+  if (root.documentElement) root.documentElement.lang = webLocale.value;
   root.querySelectorAll("[data-i18n]").forEach((element) => {
     element.textContent = tWeb(element.getAttribute("data-i18n") ?? "");
   });

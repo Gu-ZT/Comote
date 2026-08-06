@@ -27,8 +27,7 @@ test("Vite owns the complete frontend production bundle", async () => {
   assert.match(builtIndex, /<script type="module"[^>]+src="\.\/assets\/index-[^"]+\.js"/);
   assert.match(builtIndex, /<link rel="stylesheet"[^>]+href="\.\/assets\/index-[^"]+\.css"/);
   assert.match(builtBoot, /<img class="logo" src="\.\/icon\.png"/);
-  assert.match(appSource, /ComoteChannelIcons/);
-  assert.match(appSource, /createSvgTag/);
+  assert.match(appSource, /createWebHashHistory|vue-router/);
 
   const files = (await listFiles("dist/public")).map((file) => file.replaceAll("\\", "/"));
   assert.ok(files.includes(".vite/manifest.json"));
