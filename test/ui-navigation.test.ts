@@ -65,6 +65,8 @@ test("conversation history keeps its project tree and split reader", async () =>
   assert.match(conversation, /id="conversationTree" class="conversation-tree" role="tree"/);
   assert.match(conversation, /id="conversationMessages" class="conversation-messages"/);
   assert.match(conversation, /id="conversationMessageList" class="conversation-message-list"/);
+  assert.match(conversation, /M22\.2819 9\.8211/);
+  assert.doesNotMatch(conversation, /<circle cx="12" cy="12" r="9"/);
   assert.doesNotMatch(conversation, /id="conversationList"/);
   assert.match(controller, /async function loadOlderConversationMessages/);
   assert.match(controller, /prependedTranscriptScrollTop/);
