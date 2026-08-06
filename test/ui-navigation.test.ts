@@ -197,8 +197,9 @@ test("color theme follows the operating system without JavaScript state", async 
 
   assert.match(css, /:root\s*\{[^}]*color-scheme:\s*light dark/s);
   assert.match(css, /@media \(prefers-color-scheme: dark\)\s*\{\s*:root\s*\{[^}]*--canvas:\s*#[0-9a-f]{6}/s);
-  for (const variable of ["surface", "ink", "line", "teal", "success", "warning", "error"]) {
+  for (const variable of ["surface", "ink", "line", "teal", "teal-surface", "success", "warning", "error"]) {
     assert.match(css, new RegExp(`@media \\(prefers-color-scheme: dark\\)[\\s\\S]*--${variable}:`));
   }
+  assert.match(css, /\.bind-method-primary\s*\{[^}]*background:\s*var\(--teal-surface\)/s);
   assert.doesNotMatch(js, /prefers-color-scheme|matchMedia\([^)]*color-scheme/i);
 });

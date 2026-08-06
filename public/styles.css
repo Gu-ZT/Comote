@@ -40,6 +40,7 @@
   --teal-bg:       rgba(22, 135, 125, 0.11);
   --teal-text:     #116f67;
   --teal-shadow:   rgba(22, 135, 125, 0.22);
+  --teal-surface:  #f4fbf9;
   --on-accent:     #ffffff;
 
   /* Semantic colours */
@@ -104,6 +105,7 @@
     --teal-bg:       rgba(55, 181, 168, 0.16);
     --teal-text:     #78d9cf;
     --teal-shadow:   rgba(55, 181, 168, 0.20);
+    --teal-surface:  #1d2b2a;
     --on-accent:     #092f2b;
 
     --success:       #5ac7b9;
@@ -2718,7 +2720,7 @@ code {
 
 .bind-method-primary {
   border-color: rgba(47, 158, 143, 0.28);
-  background: #f4fbf9;
+  background: var(--teal-surface);
   box-shadow: 0 10px 26px rgba(31, 122, 111, 0.08);
 }
 

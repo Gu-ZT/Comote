@@ -6,7 +6,7 @@ ARG NPM_REGISTRY=https://registry.npmmirror.com
 
 WORKDIR /app
 
-COPY package.json package-lock.json tsconfig.json ./
+COPY package.json package-lock.json tsconfig.json tsconfig.build.json vite.config.ts ./
 RUN npm ci --registry="${NPM_REGISTRY}"
 
 COPY --chown=node:node src ./src
