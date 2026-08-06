@@ -304,7 +304,7 @@ test("LOW-redrain: a push channel re-drains an entry that failed transiently", a
 
 // --- LOW-dl-dup: the shared downloadAttachment helper fences + delegates ----
 
-test("LOW-dl-dup: shared downloadAttachment fences within project and delegates to the driver", async () => {
+test("LOW-dl-dup: shared downloadAttachment uses unique paths for same-name attachments", async () => {
   const { state } = buildState();
   const { root } = await makeProject();
 
@@ -326,14 +326,22 @@ test("LOW-dl-dup: shared downloadAttachment fences within project and delegates 
     },
   });
 
-  const result = await adapter.downloadAttachment({
+  const first = await adapter.downloadAttachment({
     attachment: { messageId: "om_1", fileKey: "fk_1", type: "image", fileName: "pic.png" },
     identity,
   });
   assert.equal(seen.length, 1, "the shared helper delegated to the feishu driver");
   assert.equal(seen[0].messageId, "om_1");
   assert.equal(seen[0].fileKey, "fk_1");
-  assert.match(result.relativePath, /\.comote[\\/]uploads[\\/]pic\.png$/, "returns the project-relative upload path");
+  assert.match(first.relativePath, /\.comote[\\/]uploads[\\/]pic-[^\\/]+\.png$/, "returns the project-relative upload path");
+
+  const second = await adapter.downloadAttachment({
+    attachment: { messageId: "om_1", fileKey: "fk_2", type: "image", fileName: "pic.png" },
+    identity,
+  });
+  assert.equal(seen.length, 2, "both same-name attachments are downloaded");
+  assert.notEqual(first.relativePath, second.relativePath, "same-name attachments get different relative paths");
+  assert.notEqual(seen[0].destPath, seen[1].destPath, "same-name attachments get different destination paths");
 
   // A path-traversal name must be sanitized so it cannot escape the project.
   const traversal = await adapter.downloadAttachment({
@@ -344,6 +352,71 @@ test("LOW-dl-dup: shared downloadAttachment fences within project and delegates 
     !traversal.relativePath.includes(".."),
     "the traversal name is sanitized — the dest stays inside the project",
   );
+});
+
+test("same-name Feishu images stay distinct in the prompt and Codex Desktop images", async () => {
+  const started = [];
+  const desktop = {
+    onEvent: null,
+    getStatus: () => ({ state: "connected" }),
+    async resumeThread() {
+      return { thread: { id: "thread_multi_image" } };
+    },
+    async startTurn(args) {
+      started.push(args);
+      return { turnId: "turn_multi_image" };
+    },
+  };
+  const state = createComoteState({
+    desktop,
+    autoStartWeChatRuntime: false,
+    autoStartFeishuRuntime: false,
+    autoStartDingTalkRuntime: false,
+    autoStartTelegramRuntime: false,
+  });
+  const { root } = await makeProject();
+  const identity = { channel: "feishu", stableId: "ou_multi_image", displayName: "Alice" };
+  state.authorization.confirmIdentity(identity);
+  state.commandRouter.currentProjectByIdentity.set(state.commandRouter.identityKey(identity), root);
+  state.sessions.upsertExternalSession({
+    projectPath: root,
+    id: "thread_multi_image",
+    title: "multiple images",
+    identityKey: state.commandRouter.identityKey(identity),
+  });
+
+  const downloaded = [];
+  state.runtime.feishu.__setTestDriver({
+    getStatus: () => ({ state: "configured" }),
+    async downloadMessageResource(args) {
+      downloaded.push(args);
+    },
+  });
+
+  await state.channels.feishu.handleInbound({
+    event: {
+      sender: { sender_id: { open_id: identity.stableId }, name: identity.displayName },
+      message: {
+        message_id: "om_multi_image",
+        chat_id: "oc_multi_image",
+        chat_type: "p2p",
+        message_type: "post",
+        content: JSON.stringify({
+          content: [[
+            { tag: "img", image_key: "image_key_1" },
+            { tag: "img", image_key: "image_key_2" },
+          ]],
+        }),
+      },
+    },
+  });
+
+  assert.equal(downloaded.length, 2, "both images are downloaded");
+  assert.notEqual(downloaded[0].destPath, downloaded[1].destPath);
+  assert.equal(started.length, 1, "one Codex turn is started for the message");
+  assert.equal(started[0].images.length, 2);
+  assert.notEqual(started[0].images[0], started[0].images[1], "Codex receives two distinct image paths");
+  assert.match(started[0].text, /\[attachment: .*image-[^\\/]+\.png\]\n\[attachment: .*image-[^\\/]+\.png\]/s);
 });
 
 test("LOW-dl-dup: downloadAttachment throws NO_PROJECT when the sender has no project", async () => {

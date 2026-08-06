@@ -1,8 +1,9 @@
 import { readFile } from "node:fs/promises";
+import { randomUUID } from "node:crypto";
 import { basename, dirname, join } from "node:path";
 import { fileURLToPath } from "node:url";
 
-import { isWithinDir, resolveWithinProject, sanitizeUploadName } from "../core/paths.js";
+import { createUniqueUploadName, isWithinDir, resolveWithinProject } from "../core/paths.js";
 import { planChangedFileDelivery } from "../core/changed-files-delivery.js";
 
 import { AuthorizationStore } from "../core/authorization.js";
@@ -224,7 +225,7 @@ export function createComoteState({
       if (!projectPath) {
         throw new Error("NO_PROJECT");
       }
-      const safeName = sanitizeUploadName(attachment.fileName);
+      const safeName = createUniqueUploadName(attachment.fileName, randomUUID());
       const relativePath = join(".comote", "uploads", safeName);
       const destPath = join(projectPath, relativePath);
       if (!resolveWithinProject(projectPath, destPath)) {

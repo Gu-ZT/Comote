@@ -409,7 +409,8 @@ test("inbound image attachments are forwarded to startTurn as resolved image pat
     identity,
     text: "what is in this picture?",
     attachments: [
-      { type: "image", kind: "image", localPath: ".comote/uploads/a.png", fileName: "a.png" },
+      { type: "image", kind: "image", localPath: ".comote/uploads/image-first.png", fileName: "image.png" },
+      { type: "image", kind: "image", localPath: ".comote/uploads/image-second.png", fileName: "image.png" },
       { type: "file", kind: "file", localPath: ".comote/uploads/notes.txt", fileName: "notes.txt" },
     ],
   });
@@ -419,7 +420,11 @@ test("inbound image attachments are forwarded to startTurn as resolved image pat
   // Only the image attachment is forwarded as an image, resolved to an absolute
   // path within the project; the non-image file is not. The expected path is
   // computed via path.resolve so the assertion holds on both POSIX and Windows.
-  assert.deepEqual(calls[0].images, [resolve("/repo", ".comote/uploads/a.png")]);
+  assert.deepEqual(calls[0].images, [
+    resolve("/repo", ".comote/uploads/image-first.png"),
+    resolve("/repo", ".comote/uploads/image-second.png"),
+  ]);
+  assert.notEqual(calls[0].images[0], calls[0].images[1]);
 });
 
 test("/approve and /deny resolve pending Codex Desktop approvals", async () => {

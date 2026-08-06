@@ -1,7 +1,14 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { resolve } from "node:path";
-import { classifyFile, classifyMedia, isWithinDir, resolveWithinProject, sanitizeUploadName } from "../src/core/paths.js";
+import {
+  classifyFile,
+  classifyMedia,
+  createUniqueUploadName,
+  isWithinDir,
+  resolveWithinProject,
+  sanitizeUploadName,
+} from "../src/core/paths.js";
 
 test("classifyMedia routes image extensions to image, else file", () => {
   assert.equal(classifyMedia("/a/b/photo.PNG"), "image");
@@ -80,4 +87,10 @@ test("sanitizeUploadName strips null bytes and control characters", () => {
 
 test("sanitizeUploadName honors a custom fallback", () => {
   assert.equal(sanitizeUploadName("", "default.bin"), "default.bin");
+});
+
+test("createUniqueUploadName keeps the extension and adds a safe unique token", () => {
+  assert.equal(createUniqueUploadName("image.png", "upload-1"), "image-upload-1.png");
+  assert.equal(createUniqueUploadName("../../image.png", "token.with punctuation"), "image-tokenwithpunctuation.png");
+  assert.equal(createUniqueUploadName("report", "upload-2"), "report-upload-2");
 });

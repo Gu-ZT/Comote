@@ -1,4 +1,5 @@
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 
 const IMAGE_EXTENSIONS = new Set([".png", ".jpg", ".jpeg", ".gif", ".webp", ".bmp"]);
 
@@ -31,7 +32,7 @@ export function classifyFile(filePath) {
 // as `[attachment: …]` for images, or inside a "read this file" instruction for
 // other files — so it must contain no path separators, control characters, or
 // bracket characters that could break the prompt marker.
-export function sanitizeUploadName(fileName, fallback = "attachment") {
+export function sanitizeUploadName(fileName: unknown, fallback = "attachment"): string {
   // Basename only: drop everything up to and including the last / or \.
   let name = String(fileName).replace(/^.*[/\\]/, "");
   // Defensive: replace any remaining separators (basename regex covers these,
@@ -52,6 +53,16 @@ export function sanitizeUploadName(fileName, fallback = "attachment") {
     return fallback;
   }
   return name;
+}
+
+// Keeps the original extension for media classification while preventing two
+// inbound attachments with the same channel-provided name from sharing a path.
+export function createUniqueUploadName(fileName: unknown, uniqueToken = randomUUID()): string {
+  const safeName = sanitizeUploadName(fileName);
+  const extension = path.extname(safeName);
+  const stem = extension ? safeName.slice(0, -extension.length) : safeName;
+  const safeToken = String(uniqueToken).replace(/[^a-zA-Z0-9_-]/g, "") || randomUUID();
+  return `${stem}-${safeToken}${extension}`;
 }
 
 export function isWithinDir(root, target) {
