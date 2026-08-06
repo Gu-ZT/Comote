@@ -3,6 +3,7 @@ import { fileURLToPath } from "node:url";
 import { join } from "node:path";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { build as viteBuild } from "vite";
 
 const execFileAsync = promisify(execFile);
 const root = fileURLToPath(new URL("../", import.meta.url));
@@ -23,5 +24,23 @@ for (const file of ["index.html", "boot.html", "styles.css", "logo.svg", "icon.p
   await copyFile(join(publicDir, file), join(compiledPublicDir, file));
 }
 await cp(join(publicDir, "vendor"), join(compiledPublicDir, "vendor"), { recursive: true });
+
+// import.meta.glob is expanded by Vite. Bundle only the i18n engine so the
+// existing browser entry and Node/Tauri build layout remain unchanged.
+await viteBuild({
+  configFile: false,
+  logLevel: "error",
+  build: {
+    outDir: compiledPublicDir,
+    emptyOutDir: false,
+    minify: false,
+    sourcemap: true,
+    lib: {
+      entry: join(publicDir, "i18n.ts"),
+      formats: ["es"],
+      fileName: () => "i18n.js",
+    },
+  },
+});
 
 console.log(`Built TypeScript application into ${dist}`);

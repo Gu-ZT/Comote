@@ -32,7 +32,9 @@ import {
   setWebLocale,
   getWebLocale,
   WEB_LOCALES,
+  WEB_DEFAULT,
   WEB_LOCALE_NAMES,
+  normalizeWebLocale,
 } from "./i18n.js";
 
 const REFRESH_MS = 5000;
@@ -2113,7 +2115,7 @@ function formatTime(iso) {
   if (Number.isNaN(date.getTime())) {
     return iso ?? "";
   }
-  return date.toLocaleTimeString("zh-CN", { hour12: false });
+  return date.toLocaleTimeString(getWebLocale(), { hour12: false });
 }
 
 function escapeHtml(value) {
@@ -2459,11 +2461,15 @@ function startAutoRefresh() {
   }, REFRESH_MS);
 }
 
-// Map the OS/browser language to a supported UI locale. Unmatched → English
-// (the most universal fallback for an international audience), NOT zh.
+// Map the OS/browser language to a discovered UI locale. Unmatched -> English.
 function mapSystemLocale(navLang) {
-  const primary = String(navLang || "").toLowerCase().split("-")[0];
-  return WEB_LOCALES.includes(primary) ? primary : "en";
+  return normalizeWebLocale(navLang, normalizeWebLocale("en"));
+}
+
+// The daemon keeps primary language codes for IM-side translations while the
+// browser uses the full BCP 47 ids discovered from JSON file names.
+function settingsLocale(locale) {
+  return normalizeWebLocale(locale).split("-")[0].toLowerCase();
 }
 
 function populateLangSelect() {
@@ -2483,12 +2489,12 @@ function populateLangSelect() {
 }
 
 async function onLangChange(event) {
-  const locale = event.target.value;
+  const locale = normalizeWebLocale(event.target.value);
   try {
     await getJson("/api/settings", {
       method: "PUT",
       headers: { "content-type": "application/json" },
-      body: JSON.stringify({ locale }),
+      body: JSON.stringify({ locale: settingsLocale(locale) }),
     });
   } catch {
     // Keep going; still switch the UI even if persisting the preference failed.
@@ -2514,18 +2520,18 @@ async function init() {
     capacityRetryEnabled: false,
     capacityRetryLimit: 10,
   });
-  let locale = settings.value?.locale ?? "zh";
+  let locale = normalizeWebLocale(settings.value?.locale ?? WEB_DEFAULT);
   // First launch (no committed locale): follow the OS language, English if unmatched,
   // and persist the choice so subsequent launches respect it (and a manual switch).
   if (!settings.value?.localeExplicit) {
     const sys = mapSystemLocale(navigator.language || navigator.languages?.[0]);
-    if (sys !== locale) {
+    if (settingsLocale(sys) !== settingsLocale(locale)) {
       locale = sys;
       try {
         await getJson("/api/settings", {
           method: "PUT",
           headers: { "content-type": "application/json" },
-          body: JSON.stringify({ locale }),
+          body: JSON.stringify({ locale: settingsLocale(locale) }),
         });
       } catch {
         // still apply locally even if persisting failed

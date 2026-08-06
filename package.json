@@ -43,7 +43,8 @@
     "@tauri-apps/cli": "^2.11.1",
     "@types/node": "^26.1.2",
     "tsx": "^4.23.8",
-    "typescript": "^7.0.2"
+    "typescript": "^7.0.2",
+    "vite": "^6.4.3"
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.56.1",

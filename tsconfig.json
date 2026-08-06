@@ -13,7 +13,7 @@
     "sourceMap": true,
     "declaration": true,
     "declarationMap": true,
-    "types": ["node"],
+    "types": ["node", "vite/client"],
     "forceConsistentCasingInFileNames": true
   },
   "include": [
