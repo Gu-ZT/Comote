@@ -6,7 +6,7 @@
   "build": {
     "beforeDevCommand": "",
     "beforeBuildCommand": "",
-    "frontendDist": "../public"
+    "frontendDist": "../dist/public"
   },
   "app": {
     "withGlobalTauri": true,
@@ -21,8 +21,8 @@
     "category": "Productivity",
     "externalBin": ["binaries/comote-node"],
     "resources": {
-      "../src": "comote-server/src",
-      "../public": "comote-server/public",
+      "../dist/src": "comote-server/src",
+      "../dist/public": "comote-server/public",
       "../package.json": "comote-server/package.json",
       "../build-assets/runtime-deps/node_modules": "comote-server/node_modules"
     },

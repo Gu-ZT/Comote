@@ -1,0 +1,1003 @@
+import test from "node:test";
+import assert from "node:assert/strict";
+import { resolve } from "node:path";
+import { mkdtemp, writeFile, rm } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import { join } from "node:path";
+
+import { AuthorizationStore } from "../src/core/authorization.js";
+import { ProjectStore } from "../src/core/projects.js";
+import { SessionStore } from "../src/core/sessions.js";
+import { CommandRouter } from "../src/core/commands.js";
+
+function makeRouter(overrides = {}) {
+  const authorization = new AuthorizationStore();
+  const projects = new ProjectStore();
+  const sessions = new SessionStore();
+  const router = new CommandRouter({ authorization, projects, sessions, ...overrides });
+  return { authorization, projects, sessions, router };
+}
+
+test("denies commands from unconfirmed identities", () => {
+  const { router } = makeRouter();
+
+  const reply = router.handleMessage({
+    identity: { channel: "wechat", stableId: "wxid_unknown", displayName: "Unknown" },
+    text: "/status",
+  });
+
+  assert.equal(reply.kind, "denied");
+});
+
+test("returns status for confirmed identity", () => {
+  const { authorization, router } = makeRouter();
+  const identity = { channel: "wechat", stableId: "wxid_owner", displayName: "Alice" };
+  authorization.confirmIdentity(identity);
+
+  const reply = router.handleMessage({ identity, text: "/status" });
+
+  assert.equal(reply.kind, "text");
+  assert.match(reply.text, /Comote/);
+  assert.match(reply.text, /wechat:Alice/);
+});
+
+test("lists projects and sessions using phone commands", () => {
+  const { authorization, projects, router } = makeRouter();
+  const identity = { channel: "wechat", stableId: "wxid_owner", displayName: "Alice" };
+  authorization.confirmIdentity(identity);
+  projects.replaceProjects([{
+    name: "comote",
+    path: "/home/test/projects/comote",
+    source: "manual",
+    status: "available",
+  }]);
+
+  const projectReply = router.handleMessage({ identity, text: "/projects" });
+  const openReply = router.handleMessage({ identity, text: "/open 1" });
+  const newReply = router.handleMessage({ identity, text: "/new Build the bridge" });
+  const sessionReply = router.handleMessage({ identity, text: "/sessions" });
+
+  assert.match(projectReply.text, /1\. comote/);
+  assert.match(openReply.text, /已进入 comote/);
+  assert.match(newReply.text, /已创建对话/);
+  assert.match(sessionReply.text, /Build the bridge/);
+});
+
+test("async sessions warns about the degraded local list when desktop is offline", async () => {
+  const authorization = new AuthorizationStore();
+  const projects = new ProjectStore();
+  const sessions = new SessionStore();
+  const identity = { channel: "wechat", stableId: "wxid_owner", displayName: "Alice" };
+  const codexDesktop = {
+    getStatus: () => ({ state: "not_connected", lastError: "spawn codex ENOENT" }),
+  };
+  const router = new CommandRouter({ authorization, projects, sessions, codexDesktop });
+  authorization.confirmIdentity(identity);
+  projects.replaceProjects([
+    { name: "comote", path: "/home/test/projects/comote", source: "manual", status: "available" },
+  ]);
+
+  router.handleMessage({ identity, text: "/open 1" });
+  const reply = await router.handleMessageAsync({ identity, text: "/sessions" });
+
+  assert.match(reply.text, /Codex 未连接/);
+  assert.match(reply.text, /0\. 新建对话/, "the picker still works while degraded");
+});
+
+test("async sessions command lists Codex Desktop threads when connected", async () => {
+  const authorization = new AuthorizationStore();
+  const projects = new ProjectStore();
+  const sessions = new SessionStore();
+  const identity = { channel: "wechat", stableId: "wxid_owner", displayName: "Alice" };
+  const codexDesktop = {
+    getStatus: () => ({ state: "connected" }),
+    listThreads: async ({ cwd }) => ({
+      data: [
+        {
+          id: "thread_1",
+          preview: "Continue Comote",
+          cwd,
+        },
+      ],
+    }),
+  };
+  const router = new CommandRouter({ authorization, projects, sessions, codexDesktop });
+  authorization.confirmIdentity(identity);
+  projects.replaceProjects([{
+    name: "comote",
+    path: "/home/test/projects/comote",
+    source: "manual",
+    status: "available",
+  }]);
+
+  router.handleMessage({ identity, text: "/open 1" });
+  const reply = await router.handleMessageAsync({ identity, text: "/sessions" });
+
+  assert.equal(reply.kind, "text");
+  assert.match(reply.text, /请选择对话/);
+  assert.match(reply.text, /0\. 新建对话/);
+  assert.match(reply.text, /Continue Comote/);
+  assert.ok(reply.picker, "reply has a picker descriptor");
+  assert.equal(reply.picker.pickKind, "session");
+  assert.ok(reply.picker.items.some((item) => item.label === "Continue Comote" && item.index === "1"));
+});
+
+test("async projects command lists Desktop and CLI projects with source labels", async () => {
+  const authorization = new AuthorizationStore();
+  const projects = new ProjectStore();
+  const sessions = new SessionStore();
+  const identity = { channel: "wechat", stableId: "wxid_owner", displayName: "Alice" };
+  const codexDesktop = {
+    getStatus: () => ({ state: "connected" }),
+    listProjects: async () => [
+      {
+        name: "desktop-project",
+        path: "/repo/desktop-project",
+        source: "codex-desktop",
+        status: "available",
+      },
+      {
+        name: "cli-project",
+        path: "/repo/cli-project",
+        source: "codex-cli",
+        status: "available",
+      },
+    ],
+    listThreads: async ({ cwd }) => ({
+      data: [
+        {
+          id: "thread_1",
+          preview: "Desktop thread",
+          cwd,
+        },
+      ],
+    }),
+  };
+  const router = new CommandRouter({ authorization, projects, sessions, codexDesktop });
+  authorization.confirmIdentity(identity);
+  projects.replaceProjects([{ name: "cli-project", path: "/repo/cli-project", source: "codex-cli", status: "available" }]);
+
+  const projectReply = await router.handleMessageAsync({ identity, text: "/projects" });
+  const openReply = await router.handleMessageAsync({ identity, text: "/open 1" });
+
+  assert.match(projectReply.text, /请选择要操作的 Codex Desktop 项目/);
+  assert.match(projectReply.text, /1\. desktop-project/);
+  assert.match(projectReply.text, /来源: Desktop/);
+  assert.match(projectReply.text, /2\. cli-project/);
+  assert.match(projectReply.text, /来源: CLI/);
+  assert.match(openReply.text, /已进入 desktop-project/);
+  assert.match(openReply.text, /请选择对话/);
+  assert.match(openReply.text, /0\. 新建对话/);
+  assert.match(openReply.text, /Desktop thread/);
+});
+
+test("plain phone messages guide project and session selection before sending", async () => {
+  const authorization = new AuthorizationStore();
+  const projects = new ProjectStore();
+  const sessions = new SessionStore();
+  const identity = { channel: "wechat", stableId: "wxid_owner", displayName: "Alice" };
+  const calls = [];
+  const codexDesktop = {
+    getStatus: () => ({ state: "connected" }),
+    listProjects: async () => [
+      {
+        name: "desktop-project",
+        path: "/repo/desktop-project",
+        source: "codex-desktop",
+        status: "available",
+      },
+    ],
+    listThreads: async ({ cwd }) => ({
+      data: [
+        {
+          id: "thread_1",
+          preview: "Existing thread",
+          cwd,
+        },
+      ],
+    }),
+    resumeThread: async ({ threadId }) => {
+      calls.push(["resumeThread", threadId]);
+      return { thread: { id: threadId, preview: "Existing thread" } };
+    },
+  };
+  const router = new CommandRouter({ authorization, projects, sessions, codexDesktop });
+  authorization.confirmIdentity(identity);
+
+  const projectMenu = await router.handleMessageAsync({ identity, text: "开始" });
+  const sessionMenu = await router.handleMessageAsync({ identity, text: "1" });
+  const selected = await router.handleMessageAsync({ identity, text: "1" });
+
+  assert.match(projectMenu.text, /请选择要操作的 Codex Desktop 项目/);
+  assert.match(projectMenu.text, /1\. desktop-project/);
+  assert.match(sessionMenu.text, /已进入 desktop-project/);
+  assert.match(sessionMenu.text, /0\. 新建对话/);
+  assert.match(sessionMenu.text, /1\. Existing thread/);
+  assert.match(selected.text, /已进入对话：Existing thread/);
+  assert.match(selected.text, /现在可以直接发消息/);
+  assert.deepEqual(calls, [["resumeThread", "thread_1"]]);
+  assert.equal(sessions.getActiveSession("/repo/desktop-project").id, "thread_1");
+});
+
+test("phone session menu uses 0 to start a new Codex Desktop conversation", async () => {
+  const authorization = new AuthorizationStore();
+  const projects = new ProjectStore();
+  const sessions = new SessionStore();
+  const identity = { channel: "wechat", stableId: "wxid_owner", displayName: "Alice" };
+  const calls = [];
+  const codexDesktop = {
+    getStatus: () => ({ state: "connected" }),
+    listProjects: async () => [
+      {
+        name: "desktop-project",
+        path: "/repo/desktop-project",
+        source: "codex-desktop",
+        status: "available",
+      },
+    ],
+    listThreads: async () => ({ data: [] }),
+    startThread: async ({ cwd }) => {
+      calls.push(["startThread", cwd]);
+      return { thread: { id: "thread_new" } };
+    },
+    startTurn: async ({ threadId, text, cwd }) => {
+      calls.push(["startTurn", threadId, text, cwd]);
+      return { turnId: "turn_new" };
+    },
+  };
+  const router = new CommandRouter({ authorization, projects, sessions, codexDesktop });
+  authorization.confirmIdentity(identity);
+
+  await router.handleMessageAsync({ identity, text: "/projects" });
+  const sessionMenu = await router.handleMessageAsync({ identity, text: "1" });
+  const prompt = await router.handleMessageAsync({ identity, text: "0" });
+  const created = await router.handleMessageAsync({ identity, text: "帮我检查测试" });
+
+  assert.match(sessionMenu.text, /0\. 新建对话/);
+  assert.match(prompt.text, /请输入新对话的第一条消息/);
+  assert.match(created.text, /已新建对话，并发送给 Codex Desktop/);
+  assert.deepEqual(calls, [
+    ["startThread", "/repo/desktop-project"],
+    ["startTurn", "thread_new", "帮我检查测试", "/repo/desktop-project"],
+  ]);
+  assert.equal(sessions.getActiveSession("/repo/desktop-project").id, "thread_new");
+});
+
+test("phone session selection asks for a number when text is sent too early", async () => {
+  const authorization = new AuthorizationStore();
+  const projects = new ProjectStore();
+  const sessions = new SessionStore();
+  const identity = { channel: "wechat", stableId: "wxid_owner", displayName: "Alice" };
+  const codexDesktop = {
+    getStatus: () => ({ state: "connected" }),
+    listProjects: async () => [
+      {
+        name: "desktop-project",
+        path: "/repo/desktop-project",
+        source: "codex-desktop",
+        status: "available",
+      },
+    ],
+    listThreads: async () => ({ data: [{ id: "thread_1", preview: "Existing thread" }] }),
+  };
+  const router = new CommandRouter({ authorization, projects, sessions, codexDesktop });
+  authorization.confirmIdentity(identity);
+
+  await router.handleMessageAsync({ identity, text: "开始" });
+  await router.handleMessageAsync({ identity, text: "1" });
+  const reply = await router.handleMessageAsync({ identity, text: "帮我继续" });
+
+  assert.match(reply.text, /请回复对话编号，或回复 0 新建对话/);
+});
+
+test("async /new starts a Codex Desktop thread and turn when connected", async () => {
+  const authorization = new AuthorizationStore();
+  const projects = new ProjectStore();
+  const sessions = new SessionStore();
+  const identity = { channel: "wechat", stableId: "wxid_owner", displayName: "Alice" };
+  const calls = [];
+  const codexDesktop = {
+    getStatus: () => ({ state: "connected" }),
+    startThread: async ({ cwd }) => {
+      calls.push(["startThread", cwd]);
+      return { thread: { id: "thread_new" } };
+    },
+    startTurn: async ({ threadId, text, cwd }) => {
+      calls.push(["startTurn", threadId, text, cwd]);
+      return { turnId: "turn_new" };
+    },
+  };
+  const router = new CommandRouter({ authorization, projects, sessions, codexDesktop });
+  authorization.confirmIdentity(identity);
+  projects.replaceProjects([{ name: "comote", path: "/repo", source: "codex-desktop", status: "available" }]);
+
+  router.handleMessage({ identity, text: "/open 1" });
+  const reply = await router.handleMessageAsync({ identity, text: "/new fix tests" });
+
+  assert.equal(reply.kind, "text");
+  assert.match(reply.text, /已新建对话，并发送给 Codex Desktop/);
+  assert.deepEqual(calls, [
+    ["startThread", "/repo"],
+    ["startTurn", "thread_new", "fix tests", "/repo"],
+  ]);
+  assert.equal(sessions.getActiveSession("/repo").id, "thread_new");
+});
+
+test("plain messages continue the active Codex Desktop thread", async () => {
+  const authorization = new AuthorizationStore();
+  const projects = new ProjectStore();
+  const sessions = new SessionStore();
+  const identity = { channel: "wechat", stableId: "wxid_owner", displayName: "Alice" };
+  const calls = [];
+  const codexDesktop = {
+    getStatus: () => ({ state: "connected" }),
+    startTurn: async ({ threadId, text, cwd }) => {
+      calls.push({ threadId, text, cwd });
+      return { turnId: "turn_2" };
+    },
+  };
+  const router = new CommandRouter({ authorization, projects, sessions, codexDesktop });
+  authorization.confirmIdentity(identity);
+  projects.replaceProjects([{ name: "comote", path: "/repo", source: "codex-desktop", status: "available" }]);
+
+  router.handleMessage({ identity, text: "/open 1" });
+  sessions.upsertExternalSession({ projectPath: "/repo", id: "thread_1", title: "Existing thread" });
+  // Active pointers are per identity (B-6): seed the pointer for this identity.
+  sessions.useSession("/repo", "thread_1", "wechat:wxid_owner");
+  const reply = await router.handleMessageAsync({ identity, text: "continue implementing" });
+
+  assert.match(reply.text, /已发送给 Codex Desktop/);
+  assert.deepEqual(calls, [{ threadId: "thread_1", text: "continue implementing", cwd: "/repo" }]);
+});
+
+test("plain messages resume the active Codex Desktop thread before starting a turn", async () => {
+  const authorization = new AuthorizationStore();
+  const projects = new ProjectStore();
+  const sessions = new SessionStore();
+  const identity = { channel: "wechat", stableId: "wxid_owner", displayName: "Alice" };
+  const calls = [];
+  const codexDesktop = {
+    getStatus: () => ({ state: "connected" }),
+    resumeThread: async ({ threadId, cwd }) => {
+      calls.push(["resumeThread", threadId, cwd]);
+      return { thread: { id: threadId, preview: "Existing thread" } };
+    },
+    startTurn: async ({ threadId, text, cwd }) => {
+      calls.push(["startTurn", threadId, text, cwd]);
+      return { turnId: "turn_2" };
+    },
+  };
+  const router = new CommandRouter({ authorization, projects, sessions, codexDesktop });
+  authorization.confirmIdentity(identity);
+  projects.replaceProjects([{ name: "comote", path: "/repo", source: "codex-desktop", status: "available" }]);
+
+  router.handleMessage({ identity, text: "/open 1" });
+  sessions.upsertExternalSession({ projectPath: "/repo", id: "thread_1", title: "Existing thread" });
+  sessions.useSession("/repo", "thread_1", "wechat:wxid_owner");
+  const reply = await router.handleMessageAsync({ identity, text: "continue implementing" });
+
+  assert.match(reply.text, /已发送给 Codex Desktop/);
+  assert.deepEqual(calls, [
+    ["resumeThread", "thread_1", "/repo"],
+    ["startTurn", "thread_1", "continue implementing", "/repo"],
+  ]);
+});
+
+test("inbound image attachments are forwarded to startTurn as resolved image paths", async () => {
+  const authorization = new AuthorizationStore();
+  const projects = new ProjectStore();
+  const sessions = new SessionStore();
+  const identity = { channel: "telegram", stableId: "tg_owner", displayName: "Alice" };
+  const calls = [];
+  const codexDesktop = {
+    getStatus: () => ({ state: "connected" }),
+    resumeThread: async () => ({ thread: { id: "thread_1" } }),
+    startTurn: async ({ threadId, text, cwd, images }) => {
+      calls.push({ threadId, text, cwd, images });
+      return { turnId: "turn_1" };
+    },
+  };
+  const router = new CommandRouter({ authorization, projects, sessions, codexDesktop });
+  authorization.confirmIdentity(identity);
+  projects.replaceProjects([{ name: "comote", path: "/repo", source: "codex-desktop", status: "available" }]);
+
+  router.handleMessage({ identity, text: "/open 1" });
+  sessions.upsertExternalSession({ projectPath: "/repo", id: "thread_1", title: "Existing thread" });
+  sessions.useSession("/repo", "thread_1", "telegram:tg_owner");
+
+  await router.handleMessageAsync({
+    identity,
+    text: "what is in this picture?",
+    attachments: [
+      { type: "image", kind: "image", localPath: ".comote/uploads/a.png", fileName: "a.png" },
+      { type: "file", kind: "file", localPath: ".comote/uploads/notes.txt", fileName: "notes.txt" },
+    ],
+  });
+
+  assert.equal(calls.length, 1);
+  assert.equal(calls[0].text, "what is in this picture?");
+  // Only the image attachment is forwarded as an image, resolved to an absolute
+  // path within the project; the non-image file is not. The expected path is
+  // computed via path.resolve so the assertion holds on both POSIX and Windows.
+  assert.deepEqual(calls[0].images, [resolve("/repo", ".comote/uploads/a.png")]);
+});
+
+test("/approve and /deny resolve pending Codex Desktop approvals", async () => {
+  const authorization = new AuthorizationStore();
+  const projects = new ProjectStore();
+  const sessions = new SessionStore();
+  const identity = { channel: "wechat", stableId: "wxid_owner", displayName: "Alice" };
+  const decisions = [];
+  const codexDesktop = {
+    getStatus: () => ({ state: "connected" }),
+    resolveApproval: async (id, decision) => {
+      decisions.push([id, decision]);
+      return { ok: true };
+    },
+  };
+  const router = new CommandRouter({ authorization, projects, sessions, codexDesktop });
+  authorization.confirmIdentity(identity);
+
+  const approved = await router.handleMessageAsync({ identity, text: "/approve approval_1" });
+  const denied = await router.handleMessageAsync({ identity, text: "/deny approval_2" });
+
+  assert.match(approved.text, /已批准 approval_1/);
+  assert.match(denied.text, /已拒绝 approval_2/);
+  assert.deepEqual(decisions, [
+    ["approval_1", "accept"],
+    ["approval_2", "decline"],
+  ]);
+});
+
+test("/automode switches the approval reviewer on the caller's active Codex thread", async () => {
+  const calls = [];
+  const settingsUpdates = [];
+  const codexDesktop = {
+    async resumeThread(params) {
+      calls.push(["resume", params]);
+    },
+    async updateThreadSettings(settings) {
+      calls.push(["settings", settings]);
+      settingsUpdates.push(settings);
+    },
+  };
+  const { authorization, projects, sessions, router } = makeRouter({ codexDesktop });
+  const alice = { channel: "wechat", stableId: "alice", displayName: "Alice" };
+  const bob = { channel: "wechat", stableId: "bob", displayName: "Bob" };
+  authorization.confirmIdentity(alice);
+  authorization.confirmIdentity(bob);
+  projects.replaceProjects([{ name: "comote", path: "/repo", source: "manual", status: "available" }]);
+  router.handleMessage({ identity: alice, text: "/open 1" });
+  router.handleMessage({ identity: bob, text: "/open 1" });
+  sessions.upsertExternalSession({
+    projectPath: "/repo",
+    id: "thread_alice",
+    title: "Alice thread",
+    identityKey: "wechat:alice",
+  });
+  sessions.upsertExternalSession({
+    projectPath: "/repo",
+    id: "thread_bob",
+    title: "Bob thread",
+    identityKey: "wechat:bob",
+  });
+
+  const enabled = await router.handleMessageAsync({ identity: alice, text: "/automode true" });
+  assert.match(enabled.text, /Approve for me/);
+  assert.deepEqual(settingsUpdates.at(-1), {
+    threadId: "thread_alice",
+    approvalsReviewer: "auto_review",
+  });
+  assert.deepEqual(calls.slice(0, 2), [
+    ["resume", { threadId: "thread_alice", cwd: "/repo" }],
+    ["settings", { threadId: "thread_alice", approvalsReviewer: "auto_review" }],
+  ]);
+
+  const disabled = await router.handleMessageAsync({ identity: alice, text: "/automode false" });
+  assert.match(disabled.text, /Ask for approval/);
+  assert.deepEqual(settingsUpdates.at(-1), {
+    threadId: "thread_alice",
+    approvalsReviewer: "user",
+  });
+});
+
+test("/automode rejects invalid values and requires an active conversation", async () => {
+  const { authorization, projects, router } = makeRouter({
+    codexDesktop: { updateThreadSettings: async () => {} },
+  });
+  const identity = { channel: "wechat", stableId: "owner", displayName: "Owner" };
+  authorization.confirmIdentity(identity);
+
+  const invalid = await router.handleMessageAsync({ identity, text: "/automode yes" });
+  assert.match(invalid.text, /\/automode <true\|false>/);
+
+  projects.replaceProjects([{ name: "comote", path: "/repo", source: "manual", status: "available" }]);
+  router.handleMessage({ identity, text: "/open 1" });
+  const missing = await router.handleMessageAsync({ identity, text: "/automode true" });
+  assert.match(missing.text, /\/use <编号>.*\/new <消息>/);
+});
+
+test("/model selects a model, then reasoning effort, and persists the settings", async () => {
+  const calls = [];
+  const desktop = {
+    getStatus: () => ({ state: "connected" }),
+    async resumeThread(params) {
+      calls.push(["resume", params]);
+      return {
+        thread: {
+          id: "thread_1",
+          model: "gpt-5.2",
+          reasoningEffort: "medium",
+        },
+      };
+    },
+    async listModels() {
+      return {
+        data: [
+          {
+            model: "gpt-5.2",
+            displayName: "GPT-5.2",
+            supportedReasoningEfforts: ["low", "medium", "high"],
+          },
+          {
+            model: "gpt-5.2-codex",
+            displayName: "GPT-5.2 Codex",
+            supportedReasoningEfforts: [{ reasoningEffort: "high" }],
+          },
+        ],
+      };
+    },
+    async updateThreadSettings(params) {
+      calls.push(["settings", params]);
+    },
+  };
+  const { authorization, projects, sessions, router } = makeRouter({ codexDesktop: desktop });
+  const identity = { channel: "wechat", stableId: "model-owner", displayName: "Alice" };
+  authorization.confirmIdentity(identity);
+  projects.replaceProjects([{ name: "comote", path: "/repo", source: "manual", status: "available" }]);
+  router.handleMessage({ identity, text: "/open 1" });
+  sessions.upsertExternalSession({
+    projectPath: "/repo",
+    id: "thread_1",
+    title: "Model test",
+    identityKey: "wechat:model-owner",
+  });
+
+  const models = await router.handleMessageAsync({ identity, text: "/model" });
+  assert.equal(models.picker.pickKind, "model");
+  assert.deepEqual(models.picker.items.map((item) => item.label), ["GPT-5.2", "GPT-5.2 Codex"]);
+
+  const reasoning = await router.handleMessageAsync({ identity, text: "2" });
+  assert.equal(reasoning.picker.pickKind, "reasoning");
+  assert.deepEqual(reasoning.picker.items.map((item) => item.label), ["high"]);
+
+  const changed = await router.handleMessageAsync({ identity, text: "1" });
+  assert.match(changed.text, /GPT-5\.2 Codex/);
+  assert.match(changed.text, /high/);
+  assert.deepEqual(calls.at(-1), ["settings", {
+    threadId: "thread_1",
+    model: "gpt-5.2-codex",
+    reasoningEffort: "high",
+  }]);
+  assert.deepEqual(router.getThreadSettings("thread_1"), {
+    model: "gpt-5.2-codex",
+    reasoningEffort: "high",
+  });
+  assert.equal(router.pendingByIdentity.has(router.identityKey(identity)), false);
+});
+
+test("an explicit xhigh setting survives resume defaults and is sent to the next turn", async () => {
+  const calls = [];
+  const desktop = {
+    getStatus: () => ({ state: "connected" }),
+    async resumeThread(params) {
+      calls.push(["resume", params]);
+      return {
+        thread: { id: "thread_xhigh", model: "gpt-5.2-codex", reasoningEffort: "max" },
+        model: "gpt-5.2-codex",
+        reasoningEffort: "max",
+      };
+    },
+    async listModels() {
+      return {
+        data: [{
+          model: "gpt-5.2-codex",
+          displayName: "GPT-5.2 Codex",
+          supportedReasoningEfforts: ["low", "high", "xhigh", "max"],
+        }],
+      };
+    },
+    async updateThreadSettings(params) {
+      calls.push(["settings", params]);
+    },
+    async startTurn(params) {
+      calls.push(["turn", params]);
+    },
+  };
+  const { authorization, projects, sessions, router } = makeRouter({ codexDesktop: desktop });
+  const identity = { channel: "wechat", stableId: "xhigh-owner", displayName: "Alice" };
+  authorization.confirmIdentity(identity);
+  projects.replaceProjects([{ name: "comote", path: "/repo", source: "manual", status: "available" }]);
+  router.handleMessage({ identity, text: "/open 1" });
+  sessions.upsertExternalSession({
+    projectPath: "/repo",
+    id: "thread_xhigh",
+    title: "xhigh test",
+    identityKey: "wechat:xhigh-owner",
+  });
+
+  await router.handleMessageAsync({ identity, text: "/model" });
+  await router.handleMessageAsync({ identity, text: "1" });
+  await router.handleMessageAsync({ identity, text: "3" });
+  assert.deepEqual(router.getThreadSettings("thread_xhigh"), {
+    model: "gpt-5.2-codex",
+    reasoningEffort: "xhigh",
+  });
+
+  await router.handleMessageAsync({ identity, text: "继续处理" });
+  assert.deepEqual(calls.at(-1), ["turn", {
+    threadId: "thread_xhigh",
+    text: "继续处理",
+    cwd: "/repo",
+    images: [],
+    model: "gpt-5.2-codex",
+    reasoningEffort: "xhigh",
+  }]);
+  assert.deepEqual(router.getThreadSettings("thread_xhigh"), {
+    model: "gpt-5.2-codex",
+    reasoningEffort: "xhigh",
+  });
+});
+
+test("legacy persisted thread settings remain explicit after the settings marker is added", async () => {
+  const desktop = {
+    async resumeThread() {
+      return { model: "gpt-5.2-codex", reasoningEffort: "max" };
+    },
+  };
+  const { router } = makeRouter({
+    codexDesktop: desktop,
+    persisted: {
+      threadSettingsById: [["thread_legacy", {
+        model: "gpt-5.2-codex",
+        reasoningEffort: "xhigh",
+      }]],
+    },
+  });
+
+  await router.resumeDesktopThread("thread_legacy", "/repo");
+  assert.deepEqual(router.getThreadSettings("thread_legacy"), {
+    model: "gpt-5.2-codex",
+    reasoningEffort: "xhigh",
+  });
+});
+
+test("/cancel exits either stage of the /model picker", async () => {
+  const desktop = {
+    getStatus: () => ({ state: "connected" }),
+    async listModels() { return { data: [{ model: "gpt-5.2", supportedReasoningEfforts: ["low"] }] }; },
+    async resumeThread() { return { thread: { id: "thread_1", model: "gpt-5.2" } }; },
+    async updateThreadSettings() {},
+  };
+  const { authorization, projects, sessions, router } = makeRouter({ codexDesktop: desktop });
+  const identity = { channel: "wechat", stableId: "cancel-model", displayName: "Alice" };
+  authorization.confirmIdentity(identity);
+  projects.replaceProjects([{ name: "comote", path: "/repo", source: "manual", status: "available" }]);
+  router.handleMessage({ identity, text: "/open 1" });
+  sessions.upsertExternalSession({ projectPath: "/repo", id: "thread_1", title: "Model test", identityKey: "wechat:cancel-model" });
+
+  await router.handleMessageAsync({ identity, text: "/model" });
+  assert.match((await router.handleMessageAsync({ identity, text: "/cancel" })).text, /退出选择/);
+  await router.handleMessageAsync({ identity, text: "/model" });
+  await router.handleMessageAsync({ identity, text: "1" });
+  assert.match((await router.handleMessageAsync({ identity, text: "/cancel" })).text, /退出选择/);
+});
+
+test("/new falls back to Codex CLI when Desktop is disconnected", async () => {
+  const authorization = new AuthorizationStore();
+  const projects = new ProjectStore();
+  const sessions = new SessionStore();
+  const identity = { channel: "wechat", stableId: "wxid_owner", displayName: "Alice" };
+  const codexDesktop = { getStatus: () => ({ state: "not_connected" }) };
+  const codexCli = {
+    runPrompt: async ({ cwd, text }) => ({
+      id: "cli_1",
+      cwd,
+      text,
+      output: "CLI response",
+    }),
+  };
+  const router = new CommandRouter({ authorization, projects, sessions, codexDesktop, codexCli });
+  authorization.confirmIdentity(identity);
+  projects.replaceProjects([{ name: "comote", path: "/repo", source: "codex-desktop", status: "available" }]);
+
+  router.handleMessage({ identity, text: "/open 1" });
+  const reply = await router.handleMessageAsync({ identity, text: "/new inspect repo" });
+
+  assert.match(reply.text, /已通过 Codex CLI 启动会话/);
+  assert.match(reply.text, /CLI response/);
+});
+
+test("preferred CLI wins for a new session even while Desktop is connected", async () => {
+  const authorization = new AuthorizationStore();
+  const projects = new ProjectStore();
+  const sessions = new SessionStore();
+  const identity = { channel: "wechat", stableId: "wxid_owner", displayName: "Alice" };
+  let desktopStarted = false;
+  const codexDesktop = {
+    getStatus: () => ({ state: "connected" }),
+    startThread: async () => {
+      desktopStarted = true;
+      return { thread: { id: "desktop_thread" } };
+    },
+  };
+  const codexCli = {
+    getStatus: () => ({ state: "available" }),
+    runPrompt: async () => ({ id: "019_cli_thread", output: "CLI preferred" }),
+  };
+  const router = new CommandRouter({
+    authorization,
+    projects,
+    sessions,
+    codexDesktop,
+    codexCli,
+    getPreferredConnector: () => "cli",
+  });
+  authorization.confirmIdentity(identity);
+  projects.replaceProjects([{ name: "comote", path: "/repo", source: "codex-desktop", status: "available" }]);
+
+  router.handleMessage({ identity, text: "/open 1" });
+  const reply = await router.handleMessageAsync({ identity, text: "/new inspect repo" });
+
+  assert.equal(desktopStarted, false);
+  assert.match(reply.text, /CLI preferred/);
+  assert.equal(sessions.getActiveSession("/repo", "wechat:wxid_owner").connector, "cli");
+});
+
+test("a thread opened with CLI preference continues through codex exec resume", async () => {
+  const authorization = new AuthorizationStore();
+  const projects = new ProjectStore();
+  const sessions = new SessionStore();
+  const identity = { channel: "wechat", stableId: "wxid_owner", displayName: "Alice" };
+  let desktopResumed = false;
+  const cliCalls = [];
+  const codexDesktop = {
+    getStatus: () => ({ state: "connected" }),
+    listThreads: async () => ({ threads: [{ id: "019_thread", title: "Existing task", cwd: "/repo" }] }),
+    resumeThread: async () => {
+      desktopResumed = true;
+      return { thread: { id: "019_thread" } };
+    },
+  };
+  const codexCli = {
+    getStatus: () => ({ state: "available" }),
+    runPrompt: async (options) => {
+      cliCalls.push(options);
+      return { id: options.resumeId, output: "continued in CLI" };
+    },
+  };
+  const router = new CommandRouter({
+    authorization,
+    projects,
+    sessions,
+    codexDesktop,
+    codexCli,
+    getPreferredConnector: () => "cli",
+  });
+  authorization.confirmIdentity(identity);
+  projects.replaceProjects([{ name: "comote", path: "/repo", source: "codex-desktop", status: "available" }]);
+
+  router.handleMessage({ identity, text: "/open 1" });
+  await router.handleMessageAsync({ identity, text: "/use 1" });
+  const reply = await router.handleMessageAsync({ identity, text: "continue" });
+
+  assert.equal(desktopResumed, false);
+  assert.equal(cliCalls[0].resumeId, "019_thread");
+  assert.match(reply.text, /continued in CLI/);
+  assert.equal(sessions.getActiveSession("/repo", "wechat:wxid_owner").connector, "cli");
+});
+
+test("projects reply carries a picker descriptor", async () => {
+  const authorization = new AuthorizationStore();
+  authorization.confirmIdentity({ channel: "feishu", stableId: "ou_owner", displayName: "Alice" });
+  const projects = new ProjectStore();
+  projects.replaceProjects([{ name: "comote", path: "/repo/comote", source: "codex-desktop", status: "available" }]);
+  const router = new CommandRouter({
+    authorization,
+    projects,
+    sessions: new SessionStore(),
+  });
+
+  const reply = await router.handleMessageAsync({
+    identity: { channel: "feishu", stableId: "ou_owner", displayName: "Alice" },
+    text: "/projects",
+  });
+
+  assert.ok(reply.picker, "reply has a picker descriptor");
+  assert.equal(reply.picker.pickKind, "project");
+  assert.equal(reply.picker.items[0].label, "comote");
+  assert.equal(reply.picker.items[0].index, "1");
+});
+
+test("cancelThread interrupts the thread via the desktop connector", async () => {
+  const cancelled = [];
+  const router = new CommandRouter({
+    authorization: new AuthorizationStore(),
+    projects: new ProjectStore(),
+    sessions: new SessionStore(),
+    codexDesktop: {
+      cancelTurn: async ({ threadId }) => cancelled.push(threadId),
+    },
+  });
+
+  await router.cancelThread("thread_x");
+  assert.deepEqual(cancelled, ["thread_x"]);
+});
+
+test("/file on a non-feishu channel delivers (no feishuOnly rejection)", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "comote-cmd-"));
+  try {
+    const p = join(dir, "notes.md");
+    await writeFile(p, "# hi\nbody line\n");
+
+    const authorization = new AuthorizationStore();
+    const projects = new ProjectStore();
+    const sessions = new SessionStore();
+    const enqueued = [];
+    const outboundQueue = { enqueue: (r) => enqueued.push(r) };
+    const identity = { channel: "telegram", stableId: "tg_owner", displayName: "A" };
+    const router = new CommandRouter({ authorization, projects, sessions, outboundQueue });
+    authorization.confirmIdentity(identity);
+    projects.replaceProjects([{ name: "proj", path: dir, source: "codex-desktop", status: "available" }]);
+
+    router.handleMessage({ identity, text: "/open 1" });
+    await router.handleMessageAsync({ identity, text: "hi", conversation: { channel: "telegram", conversationId: "chat1" } });
+
+    enqueued.length = 0;
+    const reply = await router.handleMessageAsync({ identity, text: "/file notes.md", conversation: { channel: "telegram", conversationId: "chat1" } });
+
+    const textReplies = enqueued.filter((r) => r.kind === "text");
+    assert.equal(textReplies.length, 1);
+    assert.equal(textReplies[0].channel, "telegram");
+    assert.equal(textReplies[0].conversationId, "chat1");
+    assert.match(textReplies[0].text, /notes\.md/);
+    assert.match(textReplies[0].text, /body line/);
+    assert.ok(textReplies[0].dedupeKey, "dedupeKey set so repeats re-send");
+    assert.equal(reply.kind, "ignored");
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("/file with a binary file enqueues a media reply on telegram", async () => {
+  const dir = await mkdtemp(join(tmpdir(), "comote-cmd-"));
+  try {
+    const p = join(dir, "pic.png");
+    await writeFile(p, Buffer.from([0x89, 0x50, 0x4e, 0x47]));
+    const authorization = new AuthorizationStore();
+    const projects = new ProjectStore();
+    const sessions = new SessionStore();
+    const enqueued = [];
+    const outboundQueue = { enqueue: (r) => enqueued.push(r) };
+    const identity = { channel: "telegram", stableId: "tg_owner2" };
+    const router = new CommandRouter({ authorization, projects, sessions, outboundQueue });
+    authorization.confirmIdentity(identity);
+    projects.replaceProjects([{ name: "proj", path: dir, source: "codex-desktop", status: "available" }]);
+    router.handleMessage({ identity, text: "/open 1" });
+    await router.handleMessageAsync({ identity, text: "hi", conversation: { channel: "telegram", conversationId: "chat2" } });
+
+    enqueued.length = 0;
+    await router.handleMessageAsync({ identity, text: "/file pic.png", conversation: { channel: "telegram", conversationId: "chat2" } });
+
+    const media = enqueued.filter((r) => r.kind === "media");
+    assert.equal(media.length, 1);
+    assert.equal(media[0].mediaKind, "image");
+    assert.equal(media[0].channel, "telegram");
+    assert.equal(media[0].path, p);
+  } finally {
+    await rm(dir, { recursive: true, force: true });
+  }
+});
+
+test("/help is the grouped single-source command reference", async () => {
+  const { authorization, router } = makeRouter();
+  const identity = { channel: "wechat", stableId: "wxid_owner", displayName: "Alice" };
+  authorization.confirmIdentity(identity);
+
+  // First message also prepends the welcome card; ask again so we isolate /help.
+  await router.handleMessageAsync({ identity, text: "/help" });
+  const reply = await router.handleMessageAsync({ identity, text: "/help" });
+
+  assert.equal(reply.kind, "text");
+  // Section headers prove the catalog is grouped, not a flat wall.
+  assert.match(reply.text, /项目与对话/);
+  assert.match(reply.text, /文件/);
+  assert.match(reply.text, /Codex 控制/);
+  assert.match(reply.text, /信息/);
+  // Every command still documented (single source of truth).
+  for (const cmd of [
+    "/projects", "/open", "/sessions", "/use", "/switch", "/new", "/current",
+    "/file", "/approve", "/deny", "/automode", "/cancel", "/tail", "/status",
+  ]) {
+    assert.ok(reply.text.includes(cmd), `expected /help to document ${cmd}`);
+  }
+});
+
+test("an unknown /slash command gets a short nudge, not the full help dump", async () => {
+  const { authorization, router } = makeRouter();
+  const identity = { channel: "wechat", stableId: "wxid_owner", displayName: "Alice" };
+  authorization.confirmIdentity(identity);
+
+  // Burn the one-time welcome card first.
+  await router.handleMessageAsync({ identity, text: "/status" });
+  const reply = await router.handleMessageAsync({ identity, text: "/notacommand" });
+
+  assert.equal(reply.kind, "text");
+  assert.match(reply.text, /\/notacommand/);
+  assert.match(reply.text, /\/help/);
+  // The nudge must NOT be the full catalog: no section headers, and it stays short.
+  assert.ok(!reply.text.includes("项目与对话"), `nudge should not dump full help, got: ${reply.text}`);
+  assert.ok(reply.text.length < 80, `nudge should stay short, got: ${reply.text}`);
+});
+
+test("the sync handleMessage path also nudges unknown /slash commands", () => {
+  const { authorization, router } = makeRouter();
+  const identity = { channel: "wechat", stableId: "wxid_owner", displayName: "Alice" };
+  authorization.confirmIdentity(identity);
+
+  const reply = router.handleMessage({ identity, text: "/bogus" });
+
+  assert.equal(reply.kind, "text");
+  assert.match(reply.text, /\/bogus/);
+  assert.match(reply.text, /\/help/);
+  assert.ok(!reply.text.includes("项目与对话"), "sync nudge should not be the full help body");
+});
+
+test("normal prose is routed to Codex, never treated as a mistyped command", async () => {
+  const authorization = new AuthorizationStore();
+  const projects = new ProjectStore();
+  const sessions = new SessionStore();
+  const identity = { channel: "wechat", stableId: "wxid_owner", displayName: "Alice" };
+  const calls = [];
+  const codexDesktop = {
+    getStatus: () => ({ state: "connected" }),
+    startTurn: async ({ threadId, text, cwd }) => {
+      calls.push({ threadId, text, cwd });
+      return { turnId: "turn_1" };
+    },
+  };
+  const router = new CommandRouter({ authorization, projects, sessions, codexDesktop });
+  authorization.confirmIdentity(identity);
+  projects.replaceProjects([{ name: "comote", path: "/repo", source: "codex-desktop", status: "available" }]);
+
+  router.handleMessage({ identity, text: "/open 1" });
+  sessions.upsertExternalSession({ projectPath: "/repo", id: "thread_1", title: "Existing thread" });
+  sessions.useSession("/repo", "thread_1", "wechat:wxid_owner");
+
+  // Prose that merely mentions a slash mid-sentence must still reach Codex.
+  const reply = await router.handleMessageAsync({ identity, text: "please run a/b test on /repo" });
+
+  assert.match(reply.text, /已发送给 Codex Desktop/);
+  assert.deepEqual(calls, [{ threadId: "thread_1", text: "please run a/b test on /repo", cwd: "/repo" }]);
+  // No nudge leaked into the reply.
+  assert.ok(!reply.text.includes("未知命令"), "prose must not trigger an unknown-command nudge");
+});
+
+test("the first authorized message prepends a short onboarding card, not the full help", async () => {
+  const { authorization, router } = makeRouter();
+  const identity = { channel: "feishu", stableId: "ou_new", displayName: "Newcomer" };
+  authorization.confirmIdentity(identity);
+
+  const first = await router.handleMessageAsync({ identity, text: "/status" });
+
+  // Welcome card surfaces the high-value commands + how to talk...
+  assert.match(first.text, /你已连接到 GugleComote/);
+  assert.match(first.text, /\/projects/);
+  assert.match(first.text, /\/help/);
+  assert.match(first.text, /直接发消息/);
+  // ...but is NOT the full grouped catalog (no /approve, /deny etc.).
+  assert.ok(!first.text.includes("/approve"), "onboarding card must stay short, not the full catalog");
+  // And it only fires once.
+  const second = await router.handleMessageAsync({ identity, text: "/status" });
+  assert.ok(!second.text.includes("你已连接到 GugleComote"), "onboarding card must fire only once");
+});

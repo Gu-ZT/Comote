@@ -1,5 +1,5 @@
-import { WeChatChannelAdapter } from "../src/channels/wechat/adapter.js";
-import { WeChatIlinkDriver } from "../src/channels/wechat/ilink-driver.js";
+import { WeChatChannelAdapter } from "../dist/src/channels/wechat/adapter.js";
+import { WeChatIlinkDriver } from "../dist/src/channels/wechat/ilink-driver.js";
 
 const adapter = new WeChatChannelAdapter({
   commandRouter: {

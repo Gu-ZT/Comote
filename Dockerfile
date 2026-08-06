@@ -6,14 +6,17 @@ ARG NPM_REGISTRY=https://registry.npmmirror.com
 
 WORKDIR /app
 
-COPY package.json package-lock.json ./
-RUN npm ci --omit=dev --registry="${NPM_REGISTRY}" \
-    && npm install --global "@openai/codex@${CODEX_VERSION}" --registry="${NPM_REGISTRY}" \
-    && npm cache clean --force
+COPY package.json package-lock.json tsconfig.json ./
+RUN npm ci --registry="${NPM_REGISTRY}"
 
 COPY --chown=node:node src ./src
 COPY --chown=node:node public ./public
 COPY --chown=node:node bin ./bin
+COPY --chown=node:node scripts/build.mjs ./scripts/build.mjs
+RUN npm run build \
+    && npm prune --omit=dev \
+    && npm install --global "@openai/codex@${CODEX_VERSION}" --registry="${NPM_REGISTRY}" \
+    && npm cache clean --force
 COPY --chown=node:node package.json ./package.json
 COPY deploy/docker-entrypoint.sh /usr/local/bin/comote-entrypoint
 
@@ -34,4 +37,4 @@ HEALTHCHECK --interval=10s --timeout=3s --start-period=15s --retries=5 \
   CMD node -e "fetch('http://127.0.0.1:16208/').then(r=>process.exit(r.ok?0:1)).catch(()=>process.exit(1))"
 
 ENTRYPOINT ["/usr/local/bin/comote-entrypoint"]
-CMD ["node", "src/server/index.js"]
+CMD ["node", "dist/src/server/index.js"]

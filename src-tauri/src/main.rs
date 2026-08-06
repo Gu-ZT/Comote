@@ -590,6 +590,7 @@ fn server_entry_path(_resource_dir: &Path) -> PathBuf {
     Path::new(env!("CARGO_MANIFEST_DIR"))
         .parent()
         .expect("src-tauri must be inside the Comote repository")
+        .join("dist")
         .join("src")
         .join("server")
         .join("index.js")

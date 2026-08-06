@@ -13,26 +13,26 @@
   "type": "module",
   "description": "GugleComote local remote companion for Codex Desktop.",
   "bin": {
-    "comote": "bin/comote.js"
+    "comote": "dist/bin/comote.js"
   },
   "files": [
-    "src",
-    "public",
-    "bin"
+    "dist"
   ],
   "scripts": {
+    "build": "node scripts/build.mjs",
+    "typecheck": "tsc --noEmit -p tsconfig.json",
     "app:build": "node scripts/build-macos-app.mjs",
     "desktop:icons": "node scripts/generate-desktop-assets.mjs",
     "channel-icons": "node scripts/generate-channel-icons.mjs",
-    "desktop:dev": "npm run desktop:icons && node scripts/prepare-desktop-dev.mjs && npm run sidecar:build && tauri dev --config src-tauri/tauri.dev.conf.json",
-    "dist:mac": "npm run desktop:icons && npm run sidecar:build:mac && node scripts/install-prod-deps.mjs && tauri build --bundles app --target aarch64-apple-darwin && node scripts/sign-macos-app.mjs && node scripts/create-mac-dmg.mjs",
-    "dist:win": "npm run desktop:icons && npm run sidecar:build:win && node scripts/install-prod-deps.mjs && tauri build --bundles nsis --target x86_64-pc-windows-msvc && node scripts/collect-tauri-artifacts.mjs win",
+    "desktop:dev": "npm run build && npm run desktop:icons && node scripts/prepare-desktop-dev.mjs && npm run sidecar:build && tauri dev --config src-tauri/tauri.dev.conf.json",
+    "dist:mac": "npm run build && npm run desktop:icons && npm run sidecar:build:mac && node scripts/install-prod-deps.mjs && tauri build --bundles app --target aarch64-apple-darwin && node scripts/sign-macos-app.mjs && node scripts/create-mac-dmg.mjs",
+    "dist:win": "npm run build && npm run desktop:icons && npm run sidecar:build:win && node scripts/install-prod-deps.mjs && tauri build --bundles nsis --target x86_64-pc-windows-msvc && node scripts/collect-tauri-artifacts.mjs win",
     "sidecar:build": "node scripts/build-sidecar.mjs current",
     "sidecar:build:mac": "node scripts/build-sidecar.mjs aarch64-apple-darwin",
     "sidecar:build:win": "node scripts/build-sidecar.mjs x86_64-pc-windows-msvc",
-    "dev": "node src/server/index.js",
-    "wechat:check": "node scripts/check-wechat-channel.mjs",
-    "test": "node --test"
+    "dev": "npm run build && node dist/src/server/index.js",
+    "wechat:check": "npm run build && node scripts/check-wechat-channel.mjs",
+    "test": "npm run build && npm run typecheck && tsx --test test/*.test.ts"
   },
   "engines": {
     "node": ">=22"
@@ -40,7 +40,10 @@
   "devDependencies": {
     "@icon-park/svg": "^1.4.2",
     "@iconify-json/ant-design": "^1.2.4",
-    "@tauri-apps/cli": "^2.11.1"
+    "@tauri-apps/cli": "^2.11.1",
+    "@types/node": "^26.1.2",
+    "tsx": "^4.23.8",
+    "typescript": "^7.0.2"
   },
   "dependencies": {
     "@larksuiteoapi/node-sdk": "^1.56.1",

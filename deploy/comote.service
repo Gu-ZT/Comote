@@ -53,7 +53,7 @@ Environment=COMOTE_STATE_PATH=/var/lib/comote/state.json
 ExecStart=/usr/bin/env comote
 # Alternatively run the entrypoint directly from a source checkout — CUSTOMIZE
 # the path and use this line instead of the one above:
-# ExecStart=/usr/bin/node /opt/comote/src/server/index.js
+# ExecStart=/usr/bin/node /opt/comote/dist/src/server/index.js
 
 Restart=on-failure
 RestartSec=5

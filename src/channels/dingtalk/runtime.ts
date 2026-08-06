@@ -1,0 +1,398 @@
+// src/channels/dingtalk/runtime.js
+import { BaseChannelRuntime } from "../base/runtime.js";
+import { routerReplyToSemantic } from "../base/messages.js";
+import { EditableApprovalMessages } from "../base/editable-approval-messages.js";
+import { createDingTalkRenderer } from "./renderer.js";
+import { approvalResolvedParamMap } from "./cards.js";
+
+// DingTalk runtime. Inbound (Stream), outbound queue delivery via the renderer,
+// status and driver wiring are owned by BaseChannelRuntime. This subclass adds the
+// card-button callback handling (handleCardAction via the driver onAction hook):
+// approvals resolve + update the card in-frame; picks dispatch async (the callback
+// has a tight ack window). Live thread-card methods are added in Part B.
+export class DingTalkRuntimeService extends BaseChannelRuntime {
+  private readonly cardUpdateIntervalMs: number;
+  private readonly approvalMessages: EditableApprovalMessages;
+  private readonly cardSessions: Map<string, any>;
+  private readonly liveApprovalThreads: Map<string, any>;
+
+  constructor({ adapter, outboundQueue, renderer, driver = null, persist = null, eventLog = null, cardUpdateIntervalMs = 700 }: any = {}) {
+    if (!adapter) throw new Error("adapter is required");
+    if (!outboundQueue) throw new Error("outboundQueue is required");
+    super({
+      channelId: "dingtalk",
+      inboundMode: "push",
+      adapter,
+      outboundQueue,
+      renderer: renderer ?? createDingTalkRenderer(),
+      driver,
+      persist,
+      eventLog,
+      dedupMax: 500,
+    });
+    this.cardUpdateIntervalMs = cardUpdateIntervalMs;
+    this.approvalMessages = new EditableApprovalMessages({
+      update: async (message, resolution) => {
+        if (message.threadId) {
+          return this._resumeLiveApproval(message, resolution);
+        }
+        await this.driver.updateCard({
+          outTrackId: message.outTrackId,
+          cardParamMap: approvalResolvedParamMap(resolution),
+        });
+      },
+    });
+    // threadId -> { outTrackId, conversationId, lastSentAt, pendingCard, timer }
+    this.cardSessions = new Map();
+    this.liveApprovalThreads = new Map();
+    // Card-action callbacks arrive through the driver onAction hook; the base
+    // start() wires this into driver.startEventStream.
+    this.onAction = (action) => this.handleCardAction(action);
+  }
+
+  rememberApprovalMessage(code, message) {
+    return this.approvalMessages.remember(code, message);
+  }
+
+  resolveApprovalMessage({ code, decision, approval = null, fallback = null }) {
+    return this.approvalMessages.resolve({ code, decision, approval, fallback });
+  }
+
+  // Status cards are built by the renderer so callers share one shape.
+  buildStatusCard(status) {
+    return this.renderer.buildStatusCard(status);
+  }
+
+  // Whether live thread cards can ACTUALLY be rendered right now. dingtalk
+  // declares capabilities.liveUpdates=1, but without a console-built status
+  // template openThreadCard degrades to a silent no-op — the host must know so
+  // it can fall back to the milestone text flow instead of a fully silent turn.
+  liveCardsOperational() {
+    return Boolean(this.renderer?.templates?.status);
+  }
+
+  hasThreadCard(threadId) {
+    return this.cardSessions.has(threadId);
+  }
+
+  // card = cardParamMap from buildStatusCard. No status template configured →
+  // degrade silently (return false); the final agent reply still arrives as text.
+  async openThreadCard({ threadId, conversationId, card }) {
+    if (!this.renderer.templates?.status) return false;
+    const outTrackId = `status:${threadId}:${Date.now()}`;
+    await this.driver.createCard({
+      cardTemplateId: this.renderer.templates.status,
+      outTrackId,
+      receiveId: conversationId,
+      cardParamMap: card,
+    });
+    this.cardSessions.set(threadId, {
+      outTrackId,
+      conversationId,
+      lastSentAt: Date.now(),
+      lastCard: card,
+      pendingCard: null,
+      timer: null,
+      paused: false,
+      resumeCard: null,
+      liveApprovals: new Map(),
+      updateChain: Promise.resolve(),
+    });
+    return true;
+  }
+
+  updateThreadCard(threadId, card) {
+    const session = this.cardSessions.get(threadId);
+    if (!session) return false;
+    session.pendingCard = card;
+    if (session.paused) return true;
+    if (session.timer) return true;
+    const wait = Math.max(0, this.cardUpdateIntervalMs - (Date.now() - session.lastSentAt));
+    session.timer = setTimeout(() => {
+      session.timer = null;
+      this.flushThreadCard(threadId);
+    }, wait);
+    session.timer.unref?.();
+    return true;
+  }
+
+  async flushThreadCard(threadId) {
+    const session = this.cardSessions.get(threadId);
+    if (!session || session.paused || !session.pendingCard) return false;
+    const card = session.pendingCard;
+    session.pendingCard = null;
+    session.lastSentAt = Date.now();
+    try {
+      await this._updateSessionCard(session, card);
+      session.lastCard = card;
+      return true;
+    } catch (error) {
+      this.lastError = error.message;
+      return false;
+    }
+  }
+
+  // Synchronously removes (and returns) a thread's card session, cancelling any
+  // pending throttled flush. Lets a caller CLAIM the card before doing async work
+  // (e.g. reading changed files) so a racing turnCompleted sees no card and skips.
+  detachThreadCard(threadId) {
+    const session = this.cardSessions.get(threadId);
+    if (!session) return null;
+    if (session.timer) {
+      clearTimeout(session.timer);
+      session.timer = null;
+    }
+    this.cardSessions.delete(threadId);
+    return session;
+  }
+
+  // Sends a final card to an ALREADY-detached session (from detachThreadCard).
+  async sendDetachedThreadCard(session, card) {
+    try {
+      await this._updateSessionCard(session, card);
+      return true;
+    } catch (error) {
+      this.lastError = error.message;
+      return false;
+    }
+  }
+
+  async finishThreadCard(threadId, card) {
+    const session = this.detachThreadCard(threadId);
+    if (!session) return false;
+    return this.sendDetachedThreadCard(session, card);
+  }
+
+  async showThreadApproval({ threadId, code, approval, autoApproved = false }) {
+    const session = this.cardSessions.get(threadId);
+    if (!session) return false;
+    const previousState = {
+      paused: session.paused,
+      pendingCard: session.pendingCard,
+      resumeCard: session.resumeCard,
+      liveApprovals: new Map(session.liveApprovals ?? []),
+    };
+    if (session.timer) {
+      clearTimeout(session.timer);
+      session.timer = null;
+    }
+    if (session.pendingCard) {
+      session.resumeCard = session.pendingCard;
+    } else if (!session.resumeCard) {
+      session.resumeCard = session.lastCard;
+    }
+    session.pendingCard = null;
+    session.paused = true;
+    session.liveApprovals ??= new Map();
+    session.liveApprovals.set(String(code), { approval, autoApproved });
+    this.liveApprovalThreads.set(code, threadId);
+    this.rememberApprovalMessage(code, {
+      outTrackId: session.outTrackId,
+      conversationId: session.conversationId,
+      approval,
+      threadId,
+    });
+    const card = this.renderer.buildApprovalCard({ code, approval, autoApproved });
+    try {
+      await this._updateSessionCard(session, card);
+    } catch (error) {
+      session.paused = previousState.paused;
+      session.pendingCard = previousState.pendingCard;
+      session.resumeCard = previousState.resumeCard;
+      session.liveApprovals = previousState.liveApprovals;
+      this.liveApprovalThreads.delete(code);
+      this.approvalMessages.messages.delete(String(code));
+      if (!session.paused && session.pendingCard) {
+        this.updateThreadCard(threadId, session.pendingCard);
+      }
+      throw error;
+    }
+    session.lastCard = card;
+    return true;
+  }
+
+  async _resumeLiveApproval(message, resolution) {
+    const session = this.cardSessions.get(message.threadId);
+    if (!session || session.outTrackId !== message.outTrackId) {
+      await this.driver.updateCard({
+        outTrackId: message.outTrackId,
+        cardParamMap: approvalResolvedParamMap(resolution),
+      });
+      this.liveApprovalThreads.delete(resolution.code);
+      return;
+    }
+    const liveApprovals = session.liveApprovals ?? new Map();
+    session.liveApprovals = liveApprovals;
+    liveApprovals.delete(String(resolution.code));
+    if (liveApprovals.size > 0) {
+      const [code, pending] = [...liveApprovals.entries()].at(-1);
+      session.pendingCard = null;
+      const card = this.renderer.buildApprovalCard({
+        code,
+        approval: pending.approval,
+        autoApproved: pending.autoApproved,
+      });
+      await this._updateSessionCard(session, card);
+      session.lastCard = card;
+      session.paused = true;
+      return;
+    }
+    const card = session.pendingCard ?? session.resumeCard
+      ?? this.buildStatusCard({ phase: "progress", threadId: message.threadId });
+    await this._updateSessionCard(session, card);
+    // A new approval can arrive while the resume update is in flight. Its
+    // showThreadApproval call has already re-paused the session and queued its
+    // own card update, so do not clear that newer state here.
+    if (session.liveApprovals.size > 0) {
+      return;
+    }
+    if (session.pendingCard === card) session.pendingCard = null;
+    session.resumeCard = null;
+    session.lastCard = card;
+    session.lastSentAt = Date.now();
+    session.paused = false;
+    this.liveApprovalThreads.delete(resolution.code);
+    if (session.pendingCard) {
+      this.updateThreadCard(message.threadId, session.pendingCard);
+    }
+  }
+
+  _updateSessionCard(session, card) {
+    const update = Promise.resolve(session.updateChain)
+      .catch(() => {})
+      .then(() => this.driver.updateCard({ outTrackId: session.outTrackId, cardParamMap: card }));
+    session.updateChain = update;
+    return update;
+  }
+
+  // Handles a DingTalk TOPIC_CARD callback payload. Returns an in-frame card-update
+  // object (becomes the ACK) or {} when nothing to update.
+  async handleCardAction(payload) {
+    const params = readCallbackParams(payload);
+    if (!params?.action) return {};
+    const router = this.adapter?.commandRouter ?? null;
+
+    // Authorize the REAL operator who clicked the button (their staffId), not the
+    // conversationId. A card button is a side-effecting command — anyone in a
+    // group, or any unconfirmed user, must not be able to approve/reject/cancel/
+    // pick. Resolve identity from the callback payload and gate on the router's
+    // authorization store; deny silently (no card update) otherwise.
+    const operatorStaffId = readOperatorStaffId(payload);
+    const identity = operatorStaffId ? { channel: "dingtalk", stableId: operatorStaffId } : null;
+    if (!router?.authorization?.isAuthorized?.(identity)) {
+      this.eventLog?.warn?.("钉钉卡片点击：未授权", { action: params.action, operator: operatorStaffId ?? null });
+      return {};
+    }
+
+    if (["approve", "approve_session", "reject"].includes(params.action)) {
+      const decision = params.action === "approve"
+        ? "accept"
+        : params.action === "approve_session"
+          ? "acceptForSession"
+          : "decline";
+      // Pass the clicker identity so the router's thread-owner check applies —
+      // an authorized user still may not resolve another user's approval. Only
+      // the typed ownership rejection is swallowed; anything else (RPC
+      // timeout, connector down) rethrows — the approval survives an
+      // unresolved fault, so the click can simply be retried.
+      try {
+        await router?.resolveApproval?.(params.code, decision, identity);
+      } catch (error) {
+        if (error?.code !== "not_owner") {
+          throw error;
+        }
+        this.eventLog?.warn?.("钉钉卡片审批被拒绝：非任务发起人", {
+          code: params.code,
+          operator: operatorStaffId ?? null,
+        });
+        return {};
+      }
+      if (this.liveApprovalThreads.has(params.code)) {
+        await this.resolveApprovalMessage({ code: params.code, decision }).catch(() => {});
+        return {};
+      }
+      const resolved = approvalResolvedParamMap({ code: params.code, decision });
+      this.approvalMessages.markResolved(params.code);
+      // In-frame card update: flip the card to its resolved face.
+      return { cardUpdateOptions: { updateCardDataByKey: true }, cardData: { cardParamMap: resolved } };
+    }
+
+    if (params.action === "pick") {
+      const conversationId = params.conv;
+      if (!conversationId) return {};
+      // The callback has a tight ack window; routing a pick involves a Codex RPC +
+      // a follow-up card. Hand it off and ack immediately; the result lands as a
+      // fresh message when ready (mirrors feishu). The pick runs under the
+      // authorized operator's identity (not the conversationId).
+      void this.dispatchPickAsync({ identity, selector: String(params.index), pickKind: params.pickKind, conversationId });
+      return {};
+    }
+
+    if (params.action === "cancel") {
+      // Cancel button on a live status card: request thread cancellation (mirrors
+      // feishu's cancel handling). The card finishes via the turn's end event.
+      await router?.cancelThread?.(params.threadId);
+      return {};
+    }
+
+    return {};
+  }
+
+  async dispatchPickAsync({ identity, selector, pickKind, conversationId }) {
+    const router = this.adapter?.commandRouter ?? null;
+    if (!router) return;
+    let reply;
+    try {
+      reply = pickKind === "project"
+        ? await router.chooseProject(identity, selector)
+        : pickKind === "model"
+          ? await router.chooseModel(identity, selector)
+          : pickKind === "reasoning"
+            ? await router.chooseReasoning(identity, selector)
+            : await router.useSessionAsync(identity, selector);
+    } catch (error) {
+      this.eventLog?.error?.("钉钉卡片点击：路由失败", { error: error.message });
+      const semantic = routerReplyToSemantic({ kind: "text", text: error.message }, { channel: "dingtalk", conversationId });
+      if (semantic) {
+        await this.adapter.sendReply(semantic).catch(() => {});
+        await this.deliverQueued().catch(() => {});
+      }
+      return;
+    }
+    // The success tail is also fired-and-forgotten (void dispatchPickAsync), so a
+    // throw here (e.g. routerReplyToSemantic or a sync send error) would surface
+    // as an unhandled rejection. Catch + log so it never crashes the process.
+    try {
+      const normalized = typeof reply === "string" ? { kind: "text", text: reply } : reply;
+      const dedupeKey = `dingtalk:pick:${identity.stableId}:${pickKind}:${selector}:${Date.now()}`;
+      const semantic = routerReplyToSemantic(normalized, { channel: "dingtalk", conversationId });
+      if (semantic) {
+        await this.adapter.sendReply({ ...semantic, dedupeKey }).catch(() => {});
+        await this.deliverQueued().catch(() => {});
+      }
+    } catch (error) {
+      this.eventLog?.error?.("钉钉卡片点击：回复派发失败", { error: error.message });
+    }
+  }
+}
+
+// Pulls the button params out of a TOPIC_CARD callback payload. The params object
+// is JSON-nested under content.cardPrivateData.params.
+function readCallbackParams(payload) {
+  try {
+    const content = typeof payload.content === "string" ? JSON.parse(payload.content) : payload.content ?? {};
+    return content?.cardPrivateData?.params ?? null;
+  } catch {
+    return null;
+  }
+}
+
+// Resolves the staffId of the user who clicked the card button. DingTalk's
+// TOPIC_CARD callback carries the operator's userId at the top level (the same
+// staffId namespace the adapter authorizes inbound messages under); fall back to
+// other known field names defensively across SDK shapes. Returns null when no
+// operator can be determined (caller denies).
+function readOperatorStaffId(payload) {
+  if (!payload || typeof payload !== "object") return null;
+  return payload.userId ?? payload.userid ?? payload.operatorUserId ?? payload.senderStaffId ?? null;
+}
