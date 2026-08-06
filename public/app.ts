@@ -81,6 +81,9 @@ function tauriInvoke(command: string, args?: Record<string, unknown>): Promise<u
 
 const canInvokeTauri = typeof window.__TAURI__?.core?.invoke === "function";
 
+// SettingsPage.vue persists capacityRetryEnabled: next.enabled and
+// capacityRetryLimit: next.limit through the same /api/settings contract.
+
 // Treat the daemon's own origin as internal so in-app navigation (and the boot
 // page) is never hijacked; only genuinely external http(s) links are diverted.
 function isExternalHttpLink(anchor) {
@@ -124,165 +127,6 @@ if (canInvokeTauri) {
     },
     true,
   );
-}
-
-// Wires the "keep daemon alive after tray quit" toggle. Only meaningful inside the
-// desktop app (the preference is read by the Rust quit path), so the panel stays
-// hidden in a plain browser where the command does not exist.
-async function setupKeepAliveToggle() {
-  const panel = document.querySelector("#keepAlivePanel");
-  const checkbox = document.querySelector("#keepDaemonAlive");
-  if (!panel || !checkbox || !canInvokeTauri) {
-    return;
-  }
-  panel.hidden = false;
-  try {
-    const enabled = await tauriInvoke("get_keep_daemon_alive");
-    checkbox.checked = Boolean(enabled);
-  } catch (error) {
-    console.error("get_keep_daemon_alive failed", error);
-  }
-  checkbox.addEventListener("change", async () => {
-    const desired = checkbox.checked;
-    checkbox.disabled = true;
-    try {
-      await tauriInvoke("set_keep_daemon_alive", { enabled: desired });
-    } catch (error) {
-      console.error("set_keep_daemon_alive failed", error);
-      checkbox.checked = !desired; // revert on failure
-    } finally {
-      checkbox.disabled = false;
-    }
-  });
-}
-
-function setupPreferredConnectorSelector(settings) {
-  const fieldset = document.querySelector("#preferredConnector");
-  const status = document.querySelector("#preferredConnectorStatus");
-  const radios = [...document.querySelectorAll('input[name="preferredConnector"]')];
-  if (!fieldset || !status || radios.length === 0) {
-    return;
-  }
-
-  let committed = settings?.preferredConnector === "cli" ? "cli" : "desktop";
-  const setStatus = (key) => {
-    status.dataset.i18n = key;
-    status.textContent = tWeb(key);
-  };
-  const setDisabled = (disabled) => {
-    for (const radio of radios) {
-      radio.disabled = disabled;
-    }
-  };
-
-  const initial = radios.find((radio) => radio.value === committed);
-  if (initial) {
-    initial.checked = true;
-  }
-
-  fieldset.addEventListener("change", async (event) => {
-    const radio = event.target.closest('input[name="preferredConnector"]');
-    if (!radio?.checked || radio.value === committed) {
-      return;
-    }
-    const previous = committed;
-    setDisabled(true);
-    setStatus("web.advanced.connectorSaving");
-    try {
-      const saved = await getJson("/api/settings", {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ preferredConnector: radio.value }),
-      });
-      committed = saved.preferredConnector === "cli" ? "cli" : "desktop";
-      setStatus("web.advanced.connectorSaved");
-    } catch (error) {
-      const previousRadio = radios.find((candidate) => candidate.value === previous);
-      if (previousRadio) {
-        previousRadio.checked = true;
-      }
-      setStatus("web.advanced.connectorSaveFailed");
-      console.error("preferred connector save failed", error);
-    } finally {
-      setDisabled(false);
-    }
-  });
-}
-
-function setupCapacityRetrySettings(settings) {
-  const checkbox = document.querySelector("#capacityRetryEnabled");
-  const limitInput = document.querySelector("#capacityRetryLimit");
-  const status = document.querySelector("#capacityRetryStatus");
-  if (!checkbox || !limitInput || !status) {
-    return;
-  }
-
-  const normalizeLimit = (value) => {
-    const number = Number(value);
-    return Number.isInteger(number) && number >= 1 && number <= 100 ? number : null;
-  };
-  let committed = {
-    enabled: Boolean(settings?.capacityRetryEnabled),
-    limit: normalizeLimit(settings?.capacityRetryLimit) ?? 10,
-  };
-
-  const setStatus = (key) => {
-    status.dataset.i18n = key;
-    status.textContent = tWeb(key);
-  };
-  const sync = () => {
-    checkbox.checked = committed.enabled;
-    limitInput.value = String(committed.limit);
-    limitInput.disabled = !committed.enabled;
-  };
-  const setSaving = (saving) => {
-    checkbox.disabled = saving;
-    limitInput.disabled = saving || !committed.enabled;
-  };
-  const save = async (next, previous) => {
-    committed = next;
-    setSaving(true);
-    setStatus("web.advanced.capacityRetrySaving");
-    try {
-      const saved = await getJson("/api/settings", {
-        method: "PUT",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({
-          capacityRetryEnabled: next.enabled,
-          capacityRetryLimit: next.limit,
-        }),
-      });
-      committed = {
-        enabled: Boolean(saved.capacityRetryEnabled),
-        limit: normalizeLimit(saved.capacityRetryLimit) ?? next.limit,
-      };
-      sync();
-      setStatus("web.advanced.capacityRetrySaved");
-    } catch (error) {
-      committed = previous;
-      sync();
-      setStatus("web.advanced.capacityRetrySaveFailed");
-      console.error("capacity retry settings save failed", error);
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  sync();
-  checkbox.addEventListener("change", () => {
-    const previous = { ...committed };
-    void save({ ...committed, enabled: checkbox.checked }, previous);
-  });
-  limitInput.addEventListener("change", () => {
-    const limit = normalizeLimit(limitInput.value);
-    if (limit === null) {
-      sync();
-      setStatus("web.advanced.capacityRetryInvalid");
-      return;
-    }
-    const previous = { ...committed };
-    void save({ ...committed, limit }, previous);
-  });
 }
 
 // Generic per-channel login state: id -> { loginId, pollTimer, startCtx }.
@@ -2135,8 +1979,6 @@ async function init() {
   }
   setWebLocale(locale);
   applyTranslations(document);
-  setupPreferredConnectorSelector(settings.value);
-  setupCapacityRetrySettings(settings.value);
   const versionData = await refreshVersionStatus();
   if (includePrereleasesPreference() && !versionData?.includePrereleases) {
     await checkVersionNow(true).catch(() => {});
@@ -2232,5 +2074,3 @@ init().catch((error) => {
   showLoadError(error);
   console.error(error);
 });
-
-setupKeepAliveToggle().catch((error) => console.error(error));
