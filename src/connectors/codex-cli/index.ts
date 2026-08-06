@@ -5,7 +5,7 @@ import { isAbsolute } from "node:path";
 import { promisify } from "node:util";
 
 import { resolveCodexCommand } from "../codex-desktop/index.js";
-import { spawnEnvFor } from "../codex-desktop/json-rpc.js";
+import { resolveCodexLaunch, spawnEnvFor } from "../codex-desktop/json-rpc.js";
 
 const defaultExecFileAsync = promisify(execFile);
 
@@ -41,15 +41,23 @@ export class CodexCliConnector {
   // Shares the desktop connector's executable resolution: a GUI-launched app
   // has a minimal PATH, so bare "codex" misses nvm/Homebrew installs.
   private readonly execFileAsync: typeof defaultExecFileAsync;
+  private readonly resolveLaunch: typeof resolveCodexLaunch;
   readonly command: string;
   private readonly exists: typeof existsSync;
 
-  constructor({ execFileAsync = defaultExecFileAsync, command = null, exists = existsSync }: {
+  constructor({
+    execFileAsync = defaultExecFileAsync,
+    resolveLaunch = resolveCodexLaunch,
+    command = null,
+    exists = existsSync,
+  }: {
     execFileAsync?: typeof defaultExecFileAsync;
+    resolveLaunch?: typeof resolveCodexLaunch;
     command?: string | null;
     exists?: typeof existsSync;
   } = {}) {
     this.execFileAsync = execFileAsync;
+    this.resolveLaunch = resolveLaunch;
     this.command = command ?? resolveCodexCommand();
     this.exists = exists;
   }
@@ -82,9 +90,10 @@ export class CodexCliConnector {
       args.push(resumeId);
     }
     args.push(text);
-    const { stdout, stderr } = await this.execFileAsync(this.command, args, {
+    const launch = this.resolveLaunch(this.command);
+    const { stdout, stderr } = await this.execFileAsync(launch.command, [...launch.args, ...args], {
       maxBuffer: 1024 * 1024 * 8,
-      env: spawnEnvFor(this.command),
+      env: spawnEnvFor(launch.command),
     });
     const parsed = parseJsonLines(stdout);
     return {

@@ -871,14 +871,29 @@ export function resolveCodexCommand({
         return nestedCodex;
       }
     }
+    const npmPrefixes = [
+      env.npm_config_prefix,
+      env.APPDATA ? winPath.join(env.APPDATA, "npm") : null,
+    ].filter((value, index, values) => value && values.indexOf(value) === index);
+    for (const prefix of npmPrefixes) {
+      const npmCodex = findWindowsNpmCodex(prefix, { exists });
+      if (npmCodex) {
+        return npmCodex;
+      }
+    }
     const pathCodex = String(pathEnv)
       .split(";")
       .filter(Boolean)
-      .map((entry) => winPath.join(entry, "codex.exe"))
-      .find(
-        (candidate) =>
-          exists(candidate) && !candidate.toLowerCase().includes("\\microsoft\\windowsapps\\"),
-      );
+      .map((entry) => entry.replace(/^"|"$/g, ""))
+      .filter((entry) => !entry.toLowerCase().includes("\\microsoft\\windowsapps"))
+      .map((entry) => {
+        const nativeCommand = winPath.join(entry, "codex.exe");
+        if (exists(nativeCommand)) {
+          return nativeCommand;
+        }
+        return findWindowsNpmCodex(entry, { exists });
+      })
+      .find(Boolean);
     return pathCodex ?? "codex";
   }
   const home = env.HOME;
@@ -916,6 +931,25 @@ export function resolveCodexCommand({
   ].filter(Boolean);
   const linuxCodex = linuxCandidates.find((candidate) => exists(candidate));
   return linuxCodex ?? findNvmCodex({ env, exists, readdir }) ?? "codex";
+}
+
+// npm creates shell shims on Windows (`codex.cmd`, `codex.ps1`, and an
+// extensionless POSIX shim). Node cannot launch those safely with execFile or
+// spawn without a shell, so only accept the shim when its official JavaScript
+// entrypoint is present. The transport then runs that entrypoint with Comote's
+// bundled Node runtime while preserving argument boundaries.
+function findWindowsNpmCodex(prefix, { exists }) {
+  const entrypoint = winPath.join(prefix, "node_modules", "@openai", "codex", "bin", "codex.js");
+  if (!exists(entrypoint)) {
+    return null;
+  }
+  for (const name of ["codex.cmd", "codex", "codex.ps1"]) {
+    const shim = winPath.join(prefix, name);
+    if (exists(shim)) {
+      return shim;
+    }
+  }
+  return entrypoint;
 }
 
 // Probes nvm-managed node installs for a global `codex`, newest node first.

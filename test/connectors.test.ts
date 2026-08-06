@@ -10,7 +10,11 @@ import {
   resolveCodexCommand,
 } from "../src/connectors/codex-desktop/index.js";
 import { CodexCliConnector } from "../src/connectors/codex-cli/index.js";
-import { spawnEnvFor, StdioTransport } from "../src/connectors/codex-desktop/json-rpc.js";
+import {
+  resolveCodexLaunch,
+  spawnEnvFor,
+  StdioTransport,
+} from "../src/connectors/codex-desktop/json-rpc.js";
 
 class MemoryTransport {
   constructor() {
@@ -466,6 +470,39 @@ test("cli connector passes images via a comma-separated --image flag", async () 
   const imageIdx = calls[0].args.indexOf("--image");
   assert.ok(imageIdx >= 0, "expected --image flag");
   assert.equal(calls[0].args[imageIdx + 1], "/repo/.comote/uploads/a.png,/repo/.comote/uploads/b.png");
+});
+
+test("cli connector launches a Windows npm shim through Node without a shell", async () => {
+  const calls = [];
+  const prefix = "C:\\Users\\you\\AppData\\Roaming\\npm";
+  const shim = `${prefix}\\codex.cmd`;
+  const entrypoint = `${prefix}\\node_modules\\@openai\\codex\\bin\\codex.js`;
+  const connector = new CodexCliConnector({
+    command: shim,
+    resolveLaunch: (command) => resolveCodexLaunch(command, {
+      platform: "win32",
+      execPath: process.execPath,
+      exists: (candidate) => candidate === entrypoint,
+    }),
+    execFileAsync: async (file, args, options) => {
+      calls.push({ file, args, options });
+      return { stdout: "ok", stderr: "" };
+    },
+  });
+
+  await connector.runPrompt({ cwd: "C:\\repo", text: "hello" });
+
+  assert.equal(calls[0].file, process.execPath);
+  assert.equal(calls[0].args[0], entrypoint);
+  assert.deepEqual(calls[0].args.slice(1), [
+    "exec",
+    "--skip-git-repo-check",
+    "-C",
+    "C:\\repo",
+    "--json",
+    "hello",
+  ]);
+  assert.equal(calls[0].options.shell, undefined);
 });
 
 test("cli connector omits --image when there are no images", async () => {
@@ -1348,6 +1385,50 @@ test("resolveCodexCommand uses PATH on Windows but skips the WindowsApps shim", 
     readdir: () => [],
   });
   assert.equal(command, real);
+});
+
+test("resolveCodexCommand finds a global npm Codex shim through APPDATA on Windows", () => {
+  const prefix = "C:\\Users\\you\\AppData\\Roaming\\npm";
+  const shim = `${prefix}\\codex.cmd`;
+  const entrypoint = `${prefix}\\node_modules\\@openai\\codex\\bin\\codex.js`;
+  const command = resolveCodexCommand({
+    platform: "win32",
+    env: { APPDATA: "C:\\Users\\you\\AppData\\Roaming" },
+    pathEnv: "",
+    exists: (candidate) => candidate === shim || candidate === entrypoint,
+    readdir: () => [],
+  });
+  assert.equal(command, shim);
+});
+
+test("resolveCodexCommand finds a global npm Codex shim on PATH", () => {
+  const prefix = "D:\\npm-global";
+  const shim = `${prefix}\\codex.cmd`;
+  const entrypoint = `${prefix}\\node_modules\\@openai\\codex\\bin\\codex.js`;
+  const command = resolveCodexCommand({
+    platform: "win32",
+    env: {},
+    pathEnv: prefix,
+    exists: (candidate) => candidate === shim || candidate === entrypoint,
+    readdir: () => [],
+  });
+  assert.equal(command, shim);
+});
+
+test("resolveCodexLaunch maps a Windows npm shim to the bundled Node runtime", () => {
+  const shim = "C:\\npm\\codex.cmd";
+  const entrypoint = "C:\\npm\\node_modules\\@openai\\codex\\bin\\codex.js";
+  assert.deepEqual(
+    resolveCodexLaunch(shim, {
+      platform: "win32",
+      execPath: "C:\\Comote\\comote-node.exe",
+      exists: (candidate) => candidate === entrypoint,
+    }),
+    {
+      command: "C:\\Comote\\comote-node.exe",
+      args: [entrypoint],
+    },
+  );
 });
 
 test("resolveCodexCommand falls back to bare 'codex' when only the WindowsApps shim is on PATH", () => {

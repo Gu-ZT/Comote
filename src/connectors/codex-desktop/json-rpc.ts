@@ -1,5 +1,6 @@
 import { spawn } from "node:child_process";
-import { delimiter, dirname, isAbsolute } from "node:path";
+import { delimiter, dirname, isAbsolute, win32 as winPath } from "node:path";
+import { existsSync } from "node:fs";
 
 const DEFAULT_REQUEST_TIMEOUT_MS = 30_000;
 
@@ -16,6 +17,39 @@ export function spawnEnvFor(command, baseEnv = process.env) {
   const dir = dirname(command);
   const path = baseEnv.PATH ? `${dir}${delimiter}${baseEnv.PATH}` : dir;
   return { ...baseEnv, PATH: path };
+}
+
+export function resolveCodexLaunch(command: string, {
+  platform = process.platform,
+  execPath = process.execPath,
+  exists = existsSync,
+}: {
+  platform?: NodeJS.Platform;
+  execPath?: string;
+  exists?: typeof existsSync;
+} = {}) {
+  if (platform !== "win32" || !winPath.isAbsolute(command)) {
+    return { command, args: [] as string[] };
+  }
+
+  if (winPath.extname(command).toLowerCase() === ".js") {
+    return { command: execPath, args: [command] };
+  }
+
+  if (!/^codex(?:\.cmd|\.ps1)?$/i.test(winPath.basename(command))) {
+    return { command, args: [] as string[] };
+  }
+  const entrypoint = winPath.join(
+    winPath.dirname(command),
+    "node_modules",
+    "@openai",
+    "codex",
+    "bin",
+    "codex.js",
+  );
+  return exists(entrypoint)
+    ? { command: execPath, args: [entrypoint] }
+    : { command, args: [] as string[] };
 }
 
 export class JsonRpcClient {
@@ -204,9 +238,10 @@ export class StdioTransport {
     // stderr is piped (not ignored): when codex is not logged in or crashes on
     // startup, its stderr is the only diagnostic there is. We keep a bounded
     // tail so the connector can surface it through lastError.
-    const child = spawn(this.command, this.args, {
+    const launch = resolveCodexLaunch(this.command);
+    const child = spawn(launch.command, [...launch.args, ...this.args], {
       stdio: ["pipe", "pipe", "pipe"],
-      env: spawnEnvFor(this.command),
+      env: spawnEnvFor(launch.command),
     });
     this.stderrTail = "";
     child.stderr?.setEncoding("utf8");
