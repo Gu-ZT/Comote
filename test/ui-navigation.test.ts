@@ -25,6 +25,26 @@ test("desktop navigation switches between exclusive application views", async ()
   assert.doesNotMatch(css, /--ui-zoom|zoom:\s*var\(--ui-zoom\)/);
 });
 
+test("conversation history uses a project tree and split message reader", async () => {
+  const [html, js, css] = await Promise.all([
+    readFile("public/index.html", "utf8"),
+    readFile("dist/public/app.js", "utf8"),
+    readFile("public/styles.css", "utf8"),
+  ]);
+
+  assert.match(html, /id="conversationTree" class="conversation-tree" role="tree"/);
+  assert.match(html, /id="conversationMessages" class="conversation-messages"/);
+  assert.match(html, /id="conversationMessageList" class="conversation-message-list"/);
+  assert.doesNotMatch(html, /id="conversationList"/);
+  assert.match(js, /const OPENAI_AVATAR_ICON = `<svg/);
+  assert.match(js, /const USER_AVATAR_ICON = `<svg/);
+  assert.match(js, /async function loadOlderConversationMessages/);
+  assert.match(js, /prependedTranscriptScrollTop/);
+  assert.match(css, /\.conversation-browser\s*\{[^}]*grid-template-columns:\s*300px minmax\(0, 1fr\)/s);
+  assert.match(css, /\.conversation-message-user\s*\{[^}]*flex-direction:\s*row-reverse/s);
+  assert.match(css, /\.conversation-messages\s*\{[^}]*overflow-y:\s*auto/s);
+});
+
 test("identity rows and channel summaries constrain long dynamic text", async () => {
   const [js, css] = await Promise.all([
     readFile("dist/public/app.js", "utf8"),

@@ -6,6 +6,9 @@ import {
   advanceRefreshCursor,
   resolveRefreshTotal,
   shouldSkipPanelRefresh,
+  shouldFillTranscriptViewport,
+  shouldLoadOlderTranscript,
+  prependedTranscriptScrollTop,
 } from "./thread-view.js";
 import {
   channelBadge,
@@ -297,8 +300,18 @@ let logsOldestId = null;
 let logsHasMore = false;
 let logsLoading = false;
 let logsInitialized = false;
-let conversationThreads = [];
-let conversationShown = 0;
+const CONVERSATION_THREAD_PAGE_SIZE = 30;
+const CONVERSATION_MESSAGE_PAGE_SIZE = 30;
+const conversationProjectState = new Map();
+let conversationProjects = [];
+let conversationSelectedProjectPath = null;
+let conversationSelectedThreadId = null;
+let conversationLoadedThreadId = null;
+let conversationMessageOffset = 0;
+let conversationMessageTotal = 0;
+let conversationMessageHasMore = false;
+let conversationMessageLoading = false;
+let conversationMessageGeneration = 0;
 // D-5/E-5: "Codex 对话" panel state — the user's project selection (remembered
 // in memory across re-renders), the accumulated thread pages, and the opaque
 // nextCursor for the "load more" button.
@@ -372,9 +385,6 @@ async function renderOnce() {
   // cards, the readiness wizard, and the advanced channel dropdown.
   const channels = channelsResult.value ?? [];
   channelsById = Object.fromEntries(channels.map((ch) => [ch.id, ch]));
-  const [transcript] = await Promise.all([
-    safeGet("/api/codex/transcript", []),
-  ]);
 
   // The daemon being unreachable (or token-gated) is the one failure that
   // genuinely blocks everything — surface it explicitly instead of silently.
@@ -414,7 +424,7 @@ async function renderOnce() {
   renderPhoneCommands();
   renderApprovals(approvals);
   renderLogs(logs);
-  renderConversation(transcript);
+  await renderConversation(status.value, projects.value);
   await renderThreads(status.value, projects.value);
 }
 
@@ -968,41 +978,374 @@ function renderLogs(result) {
   queueMicrotask(maybeLoadMoreLogs);
 }
 
-function renderConversation(result) {
-  const target = document.querySelector("#conversationList");
-  if (!result.ok) {
-    target.innerHTML = `<p class="meta">${tWeb("web.conversation.loadError")}</p>`;
-    return;
-  }
-  conversationThreads = result.value ?? [];
-  conversationShown = Math.min(5, conversationThreads.length);
-  paintConversation();
+const OPENAI_AVATAR_ICON = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/></svg>`;
+const USER_AVATAR_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.9" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="12" cy="8" r="4"/><path d="M4 21c0-4 3.5-6 8-6s8 2 8 6"/></svg>`;
+const TREE_PROJECT_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M3 6h6l2 2h10v10a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2z"/></svg>`;
+const TREE_THREAD_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M21 15a2 2 0 0 1-2 2H7l-4 4V5a2 2 0 0 1 2-2h14a2 2 0 0 1 2 2z"/></svg>`;
+const TREE_CHEVRON_ICON = `<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="m9 18 6-6-6-6"/></svg>`;
+
+function conversationThreadKey(thread) {
+  return String(thread?.id ?? "");
 }
 
-function paintConversation() {
-  const target = document.querySelector("#conversationList");
-  if (conversationThreads.length === 0) {
-    target.innerHTML = `<p class="meta">${tWeb("web.conversation.empty")}</p>`;
+function conversationThreadTitle(thread) {
+  return String(thread?.title ?? thread?.name ?? thread?.preview ?? thread?.id ?? "");
+}
+
+function conversationProject(path) {
+  return conversationProjects.find((project) => project.path === path) ?? null;
+}
+
+function syncConversationProjects(projects) {
+  conversationProjects = Array.isArray(projects) ? projects : [];
+  const livePaths = new Set(conversationProjects.map((project) => project.path));
+  for (const path of [...conversationProjectState.keys()]) {
+    if (!livePaths.has(path)) conversationProjectState.delete(path);
+  }
+  for (const project of conversationProjects) {
+    const current = conversationProjectState.get(project.path);
+    if (current) {
+      current.project = project;
+    } else {
+      conversationProjectState.set(project.path, {
+        project,
+        expanded: false,
+        items: [],
+        cursor: null,
+        loaded: false,
+        loading: false,
+        paged: false,
+        error: false,
+      });
+    }
+  }
+  if (!conversationSelectedProjectPath || !livePaths.has(conversationSelectedProjectPath)) {
+    conversationSelectedProjectPath = conversationProjects[0]?.path ?? null;
+    conversationSelectedThreadId = null;
+    conversationLoadedThreadId = null;
+  }
+  const selectedState = conversationSelectedProjectPath
+    ? conversationProjectState.get(conversationSelectedProjectPath)
+    : null;
+  if (selectedState) selectedState.expanded = true;
+}
+
+function conversationThreadsUrl(cwd, cursor = null) {
+  const params = new URLSearchParams({ cwd, limit: String(CONVERSATION_THREAD_PAGE_SIZE) });
+  if (cursor) params.set("cursor", cursor);
+  return `/api/codex/threads?${params}`;
+}
+
+function conversationTranscriptUrl(threadId, offset = 0, limit = CONVERSATION_MESSAGE_PAGE_SIZE) {
+  const params = new URLSearchParams({
+    threadId,
+    limit: String(limit),
+    offset: String(offset),
+  });
+  return `/api/codex/transcript?${params}`;
+}
+
+function paintConversationTree() {
+  const target = document.querySelector("#conversationTree");
+  if (!target) return;
+  if (conversationProjects.length === 0) {
+    target.innerHTML = `<div class="conversation-tree-empty meta">${tWeb("web.conversation.noProjects")}</div>`;
     return;
   }
-  const html = conversationThreads
-    .slice(0, conversationShown)
-    .map((thread) => {
-      const messages = thread.messages
-        .slice(-12)
-        .map(
-          (message) =>
-            `<div class="chat-msg chat-${message.role === "user" ? "user" : "assistant"}"><span class="chat-role">${message.role === "user" ? tWeb("web.chat.rolePhone") : "Codex"}</span><span class="chat-text">${escapeHtml(message.text)}</span></div>`,
-        )
-        .join("");
-      return `<article class="chat-thread"><div class="meta">${escapeHtml(thread.threadId)}</div>${messages}</article>`;
-    })
-    .join("");
-  const moreBtn =
-    conversationShown < conversationThreads.length
-      ? `<button class="secondary-button load-more-btn" id="conversationLoadMore">${tWeb("web.conversation.loadMore")}</button>`
-      : "";
-  target.innerHTML = html + moreBtn;
+  target.innerHTML = conversationProjects.map((project) => {
+    const state = conversationProjectState.get(project.path);
+    const expanded = Boolean(state?.expanded);
+    const selectedProject = project.path === conversationSelectedProjectPath;
+    let branch = "";
+    if (expanded) {
+      if (state.loading && !state.loaded) {
+        branch = `<div class="conversation-tree-status meta">${tWeb("web.threads.loading")}</div>`;
+      } else if (state.error && !state.loaded) {
+        branch = `<div class="conversation-tree-status meta">${tWeb("web.threads.loadError")}</div>`;
+      } else if (state.loaded && state.items.length === 0) {
+        branch = `<div class="conversation-tree-status meta">${tWeb("web.threads.empty", { name: escapeHtml(project.name) })}</div>`;
+      } else {
+        const threads = (state?.items ?? []).map((thread) => {
+          const threadId = conversationThreadKey(thread);
+          const selected = selectedProject && threadId === conversationSelectedThreadId;
+          return `<button class="conversation-thread-node${selected ? " active" : ""}" type="button" role="treeitem" aria-selected="${selected ? "true" : "false"}" data-project-path="${escapeAttr(project.path)}" data-thread-id="${escapeAttr(threadId)}"><span class="conversation-tree-icon">${TREE_THREAD_ICON}</span><span class="conversation-thread-copy"><strong>${escapeHtml(conversationThreadTitle(thread))}</strong><span>${escapeHtml(threadId)}</span></span></button>`;
+        }).join("");
+        const more = state?.cursor
+          ? `<button class="conversation-tree-more" type="button" data-project-load-more="${escapeAttr(project.path)}"${state.loading ? " disabled" : ""}>${state.loading ? tWeb("web.threads.loading") : tWeb("web.threads.loadMore")}</button>`
+          : "";
+        branch = threads + more;
+      }
+    }
+    return `<div class="conversation-project-branch${selectedProject ? " selected" : ""}"><button class="conversation-project-node" type="button" role="treeitem" aria-expanded="${expanded ? "true" : "false"}" data-project-path="${escapeAttr(project.path)}"><span class="conversation-tree-chevron">${TREE_CHEVRON_ICON}</span><span class="conversation-tree-icon">${TREE_PROJECT_ICON}</span><span class="conversation-project-copy"><strong>${escapeHtml(project.name)}</strong><span>${escapeHtml(project.path)}</span></span></button><div class="conversation-thread-branch" role="group"${expanded ? "" : " hidden"}>${branch}</div></div>`;
+  }).join("");
+}
+
+function updateConversationReaderHead(project, thread, source = null) {
+  const title = document.querySelector("#conversationReaderTitle");
+  const meta = document.querySelector("#conversationReaderMeta");
+  if (!title || !meta) return;
+  if (!thread) {
+    title.textContent = tWeb("web.conversation.selectThread");
+    meta.textContent = "";
+    return;
+  }
+  title.textContent = conversationThreadTitle(thread);
+  const parts = [project?.name, conversationThreadKey(thread)];
+  if (source === "desktop") parts.push(tWeb("web.threads.sourceDesktop"));
+  meta.textContent = parts.filter(Boolean).join(" · ");
+}
+
+function showConversationReaderMessage(message, meta = "") {
+  const empty = document.querySelector("#conversationEmpty");
+  const messages = document.querySelector("#conversationMessages");
+  const title = document.querySelector("#conversationReaderTitle");
+  const metaNode = document.querySelector("#conversationReaderMeta");
+  if (empty) {
+    const text = empty.querySelector("p");
+    if (text) text.textContent = message;
+    empty.hidden = false;
+  }
+  if (messages) messages.hidden = true;
+  if (title) title.textContent = message;
+  if (metaNode) metaNode.textContent = meta;
+}
+
+function renderConversationMessages(messages) {
+  return (messages ?? []).map((message) => {
+    const isUser = message.role === "user";
+    const role = isUser ? tWeb("web.conversation.user") : "Codex";
+    const icon = isUser ? USER_AVATAR_ICON : OPENAI_AVATAR_ICON;
+    return `<article class="conversation-message conversation-message-${isUser ? "user" : "assistant"}"><span class="conversation-avatar" aria-hidden="true">${icon}</span><div class="conversation-message-copy"><span class="conversation-message-role">${escapeHtml(role)}</span><div class="conversation-bubble">${escapeHtml(message.text)}</div></div></article>`;
+  }).join("");
+}
+
+function updateConversationHistoryState(message = "") {
+  const state = document.querySelector("#conversationHistoryState");
+  if (!state) return;
+  const text = message || (!conversationMessageHasMore && conversationMessageOffset > 0
+    ? tWeb("web.conversation.startReached")
+    : "");
+  state.textContent = text;
+  state.classList.toggle("visible", Boolean(text));
+}
+
+function showConversationMessages() {
+  const empty = document.querySelector("#conversationEmpty");
+  const messages = document.querySelector("#conversationMessages");
+  if (empty) empty.hidden = true;
+  if (messages) messages.hidden = false;
+}
+
+async function openConversationThread(projectPath, thread) {
+  const threadId = conversationThreadKey(thread);
+  if (!threadId) return;
+  conversationSelectedProjectPath = projectPath;
+  conversationSelectedThreadId = threadId;
+  conversationLoadedThreadId = null;
+  conversationMessageOffset = 0;
+  conversationMessageTotal = 0;
+  conversationMessageHasMore = false;
+  conversationMessageLoading = true;
+  const generation = ++conversationMessageGeneration;
+  const project = conversationProject(projectPath);
+  const state = conversationProjectState.get(projectPath);
+  if (state) state.expanded = true;
+  paintConversationTree();
+  updateConversationReaderHead(project, thread);
+  showConversationMessages();
+  const list = document.querySelector("#conversationMessageList");
+  if (list) list.innerHTML = "";
+  updateConversationHistoryState(tWeb("web.threads.loading"));
+
+  const result = await safeGet(conversationTranscriptUrl(threadId), null);
+  if (generation !== conversationMessageGeneration || conversationSelectedThreadId !== threadId) return;
+  conversationMessageLoading = false;
+  if (!result.ok || !result.value) {
+    updateConversationHistoryState(tWeb("web.conversation.loadError"));
+    return;
+  }
+  const page = (result.value.messages ?? []).slice().reverse();
+  conversationMessageOffset = page.length;
+  conversationMessageTotal = result.value.total ?? page.length;
+  conversationMessageHasMore = Boolean(result.value.hasMore);
+  conversationLoadedThreadId = threadId;
+  if (list) {
+    list.innerHTML = page.length > 0
+      ? renderConversationMessages(page)
+      : `<div class="conversation-no-messages meta">${tWeb("web.threads.noLocal")}</div>`;
+  }
+  updateConversationReaderHead(project, thread, result.value.source);
+  updateConversationHistoryState();
+  const viewport = document.querySelector("#conversationMessages");
+  requestAnimationFrame(() => {
+    if (viewport && conversationSelectedThreadId === threadId) {
+      viewport.scrollTop = viewport.scrollHeight;
+      ensureConversationViewportHistory(threadId, generation).catch(() => {});
+    }
+  });
+}
+
+async function refreshConversationMessages() {
+  const threadId = conversationSelectedThreadId;
+  if (!threadId || conversationLoadedThreadId !== threadId || conversationMessageLoading) return;
+  const viewport = document.querySelector("#conversationMessages");
+  const list = document.querySelector("#conversationMessageList");
+  if (!viewport || !list) return;
+  conversationMessageLoading = true;
+  const generation = conversationMessageGeneration;
+  try {
+    const probe = await safeGet(conversationTranscriptUrl(threadId, 0, 20), null);
+    if (!probe.ok || !probe.value || generation !== conversationMessageGeneration) return;
+    let total = probe.value.total ?? conversationMessageTotal;
+    let page = probe.value.messages ?? [];
+    const wideLimit = transcriptRefreshLimit(conversationMessageTotal, total);
+    if (wideLimit > 20) {
+      const wide = await safeGet(conversationTranscriptUrl(threadId, 0, wideLimit), null);
+      if (wide.ok && wide.value) {
+        total = wide.value.total ?? total;
+        page = wide.value.messages ?? page;
+      }
+    }
+    if (generation !== conversationMessageGeneration) return;
+    const newest = newTranscriptMessages(page, conversationMessageTotal, total);
+    if (newest.length === 0) return;
+    const nearBottom = viewport.scrollHeight - viewport.scrollTop - viewport.clientHeight < 96;
+    if (!list.querySelector(".conversation-message")) list.innerHTML = "";
+    list.insertAdjacentHTML("beforeend", renderConversationMessages(newest));
+    const cursor = advanceRefreshCursor(conversationMessageOffset, conversationMessageTotal, newest.length);
+    conversationMessageOffset = cursor.offset;
+    conversationMessageTotal = resolveRefreshTotal(conversationMessageTotal, total, newest.length);
+    if (nearBottom) viewport.scrollTop = viewport.scrollHeight;
+  } finally {
+    if (generation === conversationMessageGeneration && conversationSelectedThreadId === threadId) {
+      conversationMessageLoading = false;
+    }
+  }
+}
+
+async function loadOlderConversationMessages() {
+  const viewport = document.querySelector("#conversationMessages");
+  const list = document.querySelector("#conversationMessageList");
+  const threadId = conversationSelectedThreadId;
+  if (!viewport || !list || !threadId
+    || !shouldLoadOlderTranscript(viewport.scrollTop, conversationMessageHasMore, conversationMessageLoading)) {
+    return false;
+  }
+  conversationMessageLoading = true;
+  updateConversationHistoryState(tWeb("web.conversation.loadingOlder"));
+  const generation = conversationMessageGeneration;
+  const previousHeight = viewport.scrollHeight;
+  const previousTop = viewport.scrollTop;
+  const result = await safeGet(
+    conversationTranscriptUrl(threadId, conversationMessageOffset, CONVERSATION_MESSAGE_PAGE_SIZE),
+    null,
+  );
+  if (generation !== conversationMessageGeneration || conversationSelectedThreadId !== threadId) return false;
+  conversationMessageLoading = false;
+  if (!result.ok || !result.value) {
+    updateConversationHistoryState(tWeb("web.conversation.loadError"));
+    return false;
+  }
+  const older = (result.value.messages ?? []).slice().reverse();
+  if (older.length > 0) {
+    if (!list.querySelector(".conversation-message")) list.innerHTML = "";
+    list.insertAdjacentHTML("afterbegin", renderConversationMessages(older));
+    conversationMessageOffset += older.length;
+    requestAnimationFrame(() => {
+      if (conversationSelectedThreadId === threadId) {
+        viewport.scrollTop = prependedTranscriptScrollTop(previousTop, previousHeight, viewport.scrollHeight);
+      }
+    });
+  }
+  conversationMessageHasMore = Boolean(result.value.hasMore) && older.length > 0;
+  if (result.value.total != null) conversationMessageTotal = result.value.total;
+  updateConversationHistoryState();
+  return older.length > 0;
+}
+
+async function ensureConversationViewportHistory(threadId, generation) {
+  const viewport = document.querySelector("#conversationMessages");
+  if (!viewport) return;
+  while (
+    generation === conversationMessageGeneration
+    && conversationSelectedThreadId === threadId
+    && shouldFillTranscriptViewport(
+      viewport.scrollHeight,
+      viewport.clientHeight,
+      conversationMessageHasMore,
+      conversationMessageLoading,
+    )
+  ) {
+    const loaded = await loadOlderConversationMessages();
+    if (!loaded) return;
+    await new Promise((resolve) => requestAnimationFrame(resolve));
+  }
+}
+
+async function loadConversationProjectThreads(projectPath, { cursor = null, autoSelect = false } = {}) {
+  const state = conversationProjectState.get(projectPath);
+  if (!state || state.loading) return;
+  state.loading = true;
+  state.error = false;
+  paintConversationTree();
+  const result = await safeGet(conversationThreadsUrl(projectPath, cursor), null);
+  state.loading = false;
+  if (!result.ok || !result.value) {
+    state.error = true;
+    paintConversationTree();
+    return;
+  }
+  const page = result.value?.data ?? result.value?.threads ?? [];
+  if (cursor) {
+    const known = new Set(state.items.map(conversationThreadKey));
+    state.items = [...state.items, ...page.filter((thread) => !known.has(conversationThreadKey(thread)))];
+    state.cursor = page.length > 0 ? result.value?.nextCursor ?? null : null;
+    state.paged = true;
+  } else if (!state.loaded || !state.paged) {
+    state.items = page;
+    state.cursor = result.value?.nextCursor ?? null;
+  } else {
+    const headIds = new Set(page.map(conversationThreadKey));
+    state.items = [...page, ...state.items.filter((thread) => !headIds.has(conversationThreadKey(thread)))];
+  }
+  state.loaded = true;
+  paintConversationTree();
+
+  if (autoSelect && conversationSelectedProjectPath === projectPath) {
+    const selected = state.items.find((thread) => conversationThreadKey(thread) === conversationSelectedThreadId)
+      ?? state.items[0]
+      ?? null;
+    if (!selected) {
+      showConversationReaderMessage(tWeb("web.threads.empty", { name: state.project.name }));
+      return;
+    }
+    const selectedId = conversationThreadKey(selected);
+    conversationSelectedThreadId = selectedId;
+    paintConversationTree();
+    if (conversationLoadedThreadId !== selectedId) {
+      await openConversationThread(projectPath, selected);
+    } else {
+      updateConversationReaderHead(state.project, selected);
+      await refreshConversationMessages();
+    }
+  }
+}
+
+async function renderConversation(status, projectsValue) {
+  syncConversationProjects(projectsValue);
+  paintConversationTree();
+  if (status?.connectors?.desktop?.state !== "connected") {
+    showConversationReaderMessage(
+      tWeb("web.threads.disconnected.title"),
+      tWeb("web.threads.disconnected.hint"),
+    );
+    return;
+  }
+  if (!conversationSelectedProjectPath) {
+    showConversationReaderMessage(tWeb("web.conversation.noProjects"));
+    return;
+  }
+  await loadConversationProjectThreads(conversationSelectedProjectPath, { autoSelect: true });
 }
 
 
@@ -2071,13 +2414,38 @@ function maybeLoadMoreLogs() {
 
 window.addEventListener("scroll", maybeLoadMoreLogs, { passive: true });
 
-document.querySelector("#conversationList").addEventListener("click", (event) => {
-  if (!event.target.closest("#conversationLoadMore")) {
+document.querySelector("#conversationTree")?.addEventListener("click", async (event) => {
+  const loadMore = event.target.closest("[data-project-load-more]");
+  if (loadMore) {
+    const projectPath = loadMore.dataset.projectLoadMore;
+    const state = conversationProjectState.get(projectPath);
+    if (state?.cursor) await loadConversationProjectThreads(projectPath, { cursor: state.cursor });
     return;
   }
-  conversationShown += 5;
-  paintConversation();
+  const threadNode = event.target.closest(".conversation-thread-node");
+  if (threadNode) {
+    const projectPath = threadNode.dataset.projectPath;
+    const threadId = threadNode.dataset.threadId;
+    const state = conversationProjectState.get(projectPath);
+    const thread = state?.items.find((item) => conversationThreadKey(item) === threadId);
+    if (thread) await openConversationThread(projectPath, thread);
+    return;
+  }
+  const projectNode = event.target.closest(".conversation-project-node");
+  if (!projectNode) return;
+  const projectPath = projectNode.dataset.projectPath;
+  const state = conversationProjectState.get(projectPath);
+  if (!state) return;
+  state.expanded = !state.expanded;
+  paintConversationTree();
+  if (state.expanded && !state.loaded) {
+    await loadConversationProjectThreads(projectPath);
+  }
 });
+
+document.querySelector("#conversationMessages")?.addEventListener("scroll", () => {
+  loadOlderConversationMessages().catch(() => {});
+}, { passive: true });
 
 function startAutoRefresh() {
   if (refreshTimer) {

@@ -91,6 +91,27 @@ export function shouldSkipPanelRefresh(panel) {
   return (panel.dataset?.refreshing ?? "") === "1";
 }
 
+// The conversation reader loads older pages only when the viewport reaches its
+// top edge and there is no request already in flight.
+export function shouldLoadOlderTranscript(scrollTop, hasMore, loading, threshold = 72) {
+  return Boolean(hasMore) && !loading && Number(scrollTop ?? 0) <= threshold;
+}
+
+// If the newest page is shorter than the reader, there is no scrollbar to
+// trigger the normal top-edge loader. Keep paging until history can scroll.
+export function shouldFillTranscriptViewport(scrollHeight, clientHeight, hasMore, loading) {
+  return Boolean(hasMore)
+    && !loading
+    && Number(scrollHeight ?? 0) <= Number(clientHeight ?? 0) + 1;
+}
+
+// Prepending older messages increases scrollHeight. Add exactly that increase
+// to scrollTop so the message that was at the top stays under the cursor.
+export function prependedTranscriptScrollTop(previousTop, previousHeight, nextHeight) {
+  const addedHeight = Math.max(0, Number(nextHeight ?? 0) - Number(previousHeight ?? 0));
+  return Number(previousTop ?? 0) + addedHeight;
+}
+
 // Signature of the painted list: the ordered ids paired with each thread's
 // revision, plus the expansion set. Any of these changing means the rendered
 // list is stale and must be repainted.

@@ -8,6 +8,9 @@ import {
   advanceRefreshCursor,
   resolveRefreshTotal,
   shouldSkipPanelRefresh,
+  shouldFillTranscriptViewport,
+  shouldLoadOlderTranscript,
+  prependedTranscriptScrollTop,
 } from "../public/thread-view.js";
 
 test("signature changes when a thread's updatedAt changes (same id set)", () => {
@@ -155,6 +158,26 @@ test("shouldSkipPanelRefresh allows an idle panel", () => {
 test("shouldSkipPanelRefresh treats a missing panel as skip", () => {
   assert.equal(shouldSkipPanelRefresh(null), true);
   assert.equal(shouldSkipPanelRefresh(undefined), true);
+});
+
+test("conversation history loads older pages only near the top", () => {
+  assert.equal(shouldLoadOlderTranscript(40, true, false), true);
+  assert.equal(shouldLoadOlderTranscript(120, true, false), false);
+  assert.equal(shouldLoadOlderTranscript(0, false, false), false);
+  assert.equal(shouldLoadOlderTranscript(0, true, true), false);
+});
+
+test("conversation history fills an initially unscrollable reader", () => {
+  assert.equal(shouldFillTranscriptViewport(600, 600, true, false), true);
+  assert.equal(shouldFillTranscriptViewport(601, 600, true, false), true);
+  assert.equal(shouldFillTranscriptViewport(602, 600, true, false), false);
+  assert.equal(shouldFillTranscriptViewport(500, 600, false, false), false);
+  assert.equal(shouldFillTranscriptViewport(500, 600, true, true), false);
+});
+
+test("prepending history preserves the reader's visible anchor", () => {
+  assert.equal(prependedTranscriptScrollTop(24, 800, 1180), 404);
+  assert.equal(prependedTranscriptScrollTop(10, 900, 850), 10);
 });
 
 test("threadRevision prefers updatedAt, then count, then text", () => {
