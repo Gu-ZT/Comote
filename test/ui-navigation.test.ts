@@ -3,19 +3,27 @@ import { readFile } from "node:fs/promises";
 import test from "node:test";
 
 async function frontendSources() {
-  const [app, controller, router, main, phoneCommands, css] = await Promise.all([
+  const [app, controller, router, main, connectPhone, users, phoneCommands, approvals, conversation, logs, settings, about, css] = await Promise.all([
     readFile("public/App.vue", "utf8"),
     readFile("public/app.ts", "utf8"),
     readFile("public/router.ts", "utf8"),
     readFile("public/main.ts", "utf8"),
+    readFile("public/components/ConnectPhonePage.vue", "utf8"),
+    readFile("public/components/UsersPage.vue", "utf8"),
     readFile("public/components/PhoneCommandsPage.vue", "utf8"),
+    readFile("public/components/ApprovalsPage.vue", "utf8"),
+    readFile("public/components/ConversationPage.vue", "utf8"),
+    readFile("public/components/LogsPage.vue", "utf8"),
+    readFile("public/components/SettingsPage.vue", "utf8"),
+    readFile("public/components/AboutPage.vue", "utf8"),
     readFile("public/styles.css", "utf8"),
   ]);
-  return { app, controller, router, main, phoneCommands, css };
+  const pages = [connectPhone, users, phoneCommands, approvals, conversation, logs, settings, about].join("\n");
+  return { app, controller, router, main, connectPhone, phoneCommands, conversation, settings, about, pages, css };
 }
 
 test("Vue Router drives every exclusive sidebar page", async () => {
-  const { app, router, main, phoneCommands, css } = await frontendSources();
+  const { app, router, main, pages, css } = await frontendSources();
   const links = [...app.matchAll(/<RouterLink class="nav-item[^"]*" to="([^"]+)"/g)]
     .map((match) => match[1]);
 
@@ -30,8 +38,8 @@ test("Vue Router drives every exclusive sidebar page", async () => {
     "/about",
   ]);
   for (const page of ["connectPhone", "users", "phoneCommands", "approvals", "conversation", "logs", "settings", "about"]) {
-    const pageSource = page === "phoneCommands" ? app + phoneCommands : app;
-    assert.match(pageSource, new RegExp(`id="${page}"[\\s\\S]*isPage\\('${page}'\\)|isPage\\('${page}'\\)[\\s\\S]*id="${page}"`));
+    assert.match(pages, new RegExp(`id="${page}"`));
+    assert.match(app, new RegExp(`<\\w+Page :active="isPage\\('${page}'\\)"`));
     assert.match(router, new RegExp(`meta: \\{ page: "${page}" \\}`));
   }
   assert.match(router, /createWebHashHistory\(\)/);
@@ -42,23 +50,22 @@ test("Vue Router drives every exclusive sidebar page", async () => {
 });
 
 test("Vue application shell keeps product and operational page structure", async () => {
-  const { app } = await frontendSources();
-  const connectPage = app.slice(app.indexOf('id="connectPhone"'), app.indexOf('id="users"'));
+  const { app, connectPhone } = await frontendSources();
 
   assert.match(app, /<h1 class="top-title">\{\{ t\("web\.top\.title"\) \}\}<\/h1>/);
   assert.match(app, /<img class="brand-logo" src="\/icon\.png"/);
-  assert.match(connectPage, /id="updateNotice"/);
-  assert.match(connectPage, /id="codexNotice"/);
-  assert.match(connectPage, /id="channelCards"/);
+  assert.match(connectPhone, /id="updateNotice"/);
+  assert.match(connectPhone, /id="codexNotice"/);
+  assert.match(connectPhone, /id="channelCards"/);
 });
 
 test("conversation history keeps its project tree and split reader", async () => {
-  const { app, controller, router, css } = await frontendSources();
+  const { conversation, controller, router, css } = await frontendSources();
 
-  assert.match(app, /id="conversationTree" class="conversation-tree" role="tree"/);
-  assert.match(app, /id="conversationMessages" class="conversation-messages"/);
-  assert.match(app, /id="conversationMessageList" class="conversation-message-list"/);
-  assert.doesNotMatch(app, /id="conversationList"/);
+  assert.match(conversation, /id="conversationTree" class="conversation-tree" role="tree"/);
+  assert.match(conversation, /id="conversationMessages" class="conversation-messages"/);
+  assert.match(conversation, /id="conversationMessageList" class="conversation-message-list"/);
+  assert.doesNotMatch(conversation, /id="conversationList"/);
   assert.match(controller, /async function loadOlderConversationMessages/);
   assert.match(controller, /prependedTranscriptScrollTop/);
   assert.match(router, /path: "\/conversation"/);
@@ -107,13 +114,13 @@ test("phone commands remain complete and copyable", async () => {
 });
 
 test("settings page keeps persistent connector and retry controls", async () => {
-  const { app, controller, router, css } = await frontendSources();
+  const { settings, controller, router, css } = await frontendSources();
 
-  assert.match(app, /id="preferredConnector" class="segmented-selector"/);
-  assert.match(app, /name="preferredConnector" value="desktop"/);
-  assert.match(app, /name="preferredConnector" value="cli"/);
-  assert.match(app, /id="capacityRetryEnabled" type="checkbox" role="switch"/);
-  assert.match(app, /id="capacityRetryLimit" type="number" min="1" max="100"/);
+  assert.match(settings, /id="preferredConnector" class="segmented-selector"/);
+  assert.match(settings, /name="preferredConnector" value="desktop"/);
+  assert.match(settings, /name="preferredConnector" value="cli"/);
+  assert.match(settings, /id="capacityRetryEnabled" type="checkbox" role="switch"/);
+  assert.match(settings, /id="capacityRetryLimit" type="number" min="1" max="100"/);
   assert.match(controller, /capacityRetryEnabled: next\.enabled/);
   assert.match(controller, /capacityRetryLimit: next\.limit/);
   assert.match(router, /path: "\/settings", alias: "\/advanced"/);
@@ -121,10 +128,10 @@ test("settings page keeps persistent connector and retry controls", async () => 
 });
 
 test("about page and desktop external links remain wired", async () => {
-  const { app, controller, css } = await frontendSources();
+  const { about, controller, css } = await frontendSources();
   const config = await readFile("src-tauri/tauri.conf.json", "utf8");
 
-  assert.match(app, /<div class="about-grid">/);
+  assert.match(about, /<div class="about-grid">/);
   assert.match(css, /\.about-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 760px\)[^}]*justify-content:\s*center/s);
   assert.match(controller, /const canInvokeTauri = typeof window\.__TAURI__\?\.core\?\.invoke === "function"/);
   assert.match(controller, /if \(canInvokeTauri\)/);
