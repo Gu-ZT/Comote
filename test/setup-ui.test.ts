@@ -4,7 +4,9 @@ import test from "node:test";
 
 test("setup flow starts with phone channels instead of asking users to connect Codex", async () => {
   const html = await readFile("public/index.html", "utf8");
-  const setupFlow = html.match(/<section id="connectPhone"[\s\S]*?<\/section>/)?.[0] ?? "";
+  const setupStart = html.indexOf('<section id="connectPhone"');
+  const setupEnd = html.indexOf('<section id="approvals"', setupStart);
+  const setupFlow = html.slice(setupStart, setupEnd);
 
   assert.match(setupFlow, /<h2[^>]*>连接手机<\/h2>/);
   // C4: the two hardcoded feishu/wechat cards were replaced by one empty
