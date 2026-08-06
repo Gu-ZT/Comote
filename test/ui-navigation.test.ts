@@ -52,6 +52,9 @@ test("conversation history uses a project tree and split message reader", async 
   assert.match(html, /id="conversationMessages" class="conversation-messages"/);
   assert.match(html, /id="conversationMessageList" class="conversation-message-list"/);
   assert.doesNotMatch(html, /id="conversationList"/);
+  const advancedMarkup = html.slice(html.indexOf('<section id="advanced"'), html.indexOf('<section id="about"'));
+  assert.doesNotMatch(advancedMarkup, /web\.advanced\.projects|id="projects"|id="discoverProjects"/);
+  assert.doesNotMatch(advancedMarkup, /web\.advanced\.threads|id="threads"|id="threadsProjectSelect"/);
   assert.match(js, /const OPENAI_AVATAR_ICON = `<svg/);
   assert.match(js, /const USER_AVATAR_ICON = `<svg/);
   assert.match(js, /async function loadOlderConversationMessages/);

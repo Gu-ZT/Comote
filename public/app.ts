@@ -420,14 +420,12 @@ async function renderOnce() {
   renderReadiness(status.value, identities, channels);
   renderIdentities(identities);
   renderCandidates(candidates);
-  renderProjects(projects);
   renderChannels(channels);
   renderChannelDropdown(channels);
   renderPhoneCommands();
   renderApprovals(approvals);
   renderLogs(logs);
   await renderConversation(status.value, projects.value);
-  await renderThreads(status.value, projects.value);
 }
 
 function renderReadiness(status, identitiesResult, channels) {
@@ -1840,7 +1838,7 @@ document.querySelector("#retryCodexConnection").addEventListener("click", async 
   await connectCodexDesktop({ button: event.currentTarget });
 });
 
-document.querySelector("#discoverProjects").addEventListener("click", async () => {
+document.querySelector("#discoverProjects")?.addEventListener("click", async () => {
   const button = document.querySelector("#discoverProjects");
   button.disabled = true;
   button.textContent = tWeb("web.projects.refreshing");
@@ -2262,7 +2260,7 @@ document.querySelector("#threadsLoadMore")?.addEventListener("click", async (eve
 // E-7: thread rows are rendered as role="button" focusable rows; Enter/Space
 // must toggle them exactly like a click. Clicks inside the detail panel are
 // excluded, mirroring the click handler below.
-document.querySelector("#threads").addEventListener("keydown", (event) => {
+document.querySelector("#threads")?.addEventListener("keydown", (event) => {
   if (event.key !== "Enter" && event.key !== " ") {
     return;
   }
@@ -2274,7 +2272,7 @@ document.querySelector("#threads").addEventListener("keydown", (event) => {
   row.click();
 });
 
-document.querySelector("#threads").addEventListener("click", async (event) => {
+document.querySelector("#threads")?.addEventListener("click", async (event) => {
   const row = event.target.closest("li[data-thread-id]");
   if (!row) {
     return;
