@@ -25,6 +25,22 @@ test("desktop navigation switches between exclusive application views", async ()
   assert.doesNotMatch(css, /--ui-zoom|zoom:\s*var\(--ui-zoom\)/);
 });
 
+test("top bar uses the product name and operational notices belong to connect phone", async () => {
+  const html = await readFile("public/index.html", "utf8");
+  const connectStart = html.indexOf('<section id="connectPhone"');
+  const usersStart = html.indexOf('<section id="users"');
+  const connectPage = html.slice(connectStart, usersStart);
+
+  assert.match(html, /<h1 class="top-title" data-i18n="web\.top\.title">GugleComote<\/h1>/);
+  assert.match(connectPage, /id="updateNotice"/);
+  assert.match(connectPage, /id="codexNotice"/);
+
+  for (const locale of ["zh-CN", "en-US", "ja-JP", "ko-KR", "fr-FR", "es-ES"]) {
+    const dictionary = JSON.parse(await readFile(`src/i18n/${locale}.json`, "utf8"));
+    assert.equal(dictionary["web.top.title"], "GugleComote");
+  }
+});
+
 test("conversation history uses a project tree and split message reader", async () => {
   const [html, js, css] = await Promise.all([
     readFile("public/index.html", "utf8"),
