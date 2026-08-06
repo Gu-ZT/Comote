@@ -1,3 +1,5 @@
+import "./vendor/channel-icons.js";
+
 import { qrDataUrl } from "./qr-code.js";
 import {
   threadListSignature,

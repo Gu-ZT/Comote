@@ -4,8 +4,8 @@
   "version": "0.8.1",
   "identifier": "dev.comote.desktop",
   "build": {
-    "beforeDevCommand": "",
-    "beforeBuildCommand": "",
+    "beforeDevCommand": "npm run build:web",
+    "beforeBuildCommand": "npm run build:web",
     "frontendDist": "../dist/public"
   },
   "app": {

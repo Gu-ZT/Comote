@@ -403,6 +403,9 @@ npm run desktop:dev
 # daemon only, no desktop shell
 npm run dev
 
+# Vite frontend dev server (run npm run dev in another terminal first)
+npm run dev:web
+
 # run tests
 npm test
 ```

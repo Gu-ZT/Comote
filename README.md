@@ -390,6 +390,9 @@ npm run desktop:dev
 # 只跑 daemon，不开桌面壳
 npm run dev
 
+# 前端 Vite 开发服务器（另一个终端先运行 npm run dev）
+npm run dev:web
+
 # 跑测试
 npm test
 ```

@@ -2,11 +2,13 @@ import assert from "node:assert/strict";
 import { readFile } from "node:fs/promises";
 import test from "node:test";
 
+import { readFrontendEntry } from "./helpers/frontend-build.js";
+
 test("desktop navigation switches between exclusive application views", async () => {
   const [html, boot, js, css] = await Promise.all([
     readFile("public/index.html", "utf8"),
     readFile("public/boot.html", "utf8"),
-    readFile("dist/public/app.js", "utf8"),
+    readFrontendEntry("index.html"),
     readFile("public/styles.css", "utf8"),
   ]);
 
@@ -44,7 +46,7 @@ test("top bar uses the product name and operational notices belong to connect ph
 test("conversation history uses a project tree and split message reader", async () => {
   const [html, js, css] = await Promise.all([
     readFile("public/index.html", "utf8"),
-    readFile("dist/public/app.js", "utf8"),
+    readFrontendEntry("index.html"),
     readFile("public/styles.css", "utf8"),
   ]);
 
@@ -74,7 +76,7 @@ test("conversation history uses a project tree and split message reader", async 
 
 test("identity rows and channel summaries constrain long dynamic text", async () => {
   const [js, css] = await Promise.all([
-    readFile("dist/public/app.js", "utf8"),
+    readFrontendEntry("index.html"),
     readFile("public/styles.css", "utf8"),
   ]);
 
@@ -86,8 +88,8 @@ test("identity rows and channel summaries constrain long dynamic text", async ()
 
 test("desktop approvals expose the allow-for-session decision", async () => {
   const [js, i18n, css] = await Promise.all([
-    readFile("dist/public/app.js", "utf8"),
-    readFile("dist/public/i18n.js", "utf8"),
+    readFrontendEntry("index.html"),
+    readFrontendEntry("i18n.ts"),
     readFile("public/styles.css", "utf8"),
   ]);
   assert.match(js, /\|acceptForSession/);
@@ -101,7 +103,7 @@ test("desktop approvals expose the allow-for-session decision", async () => {
 test("phone commands render as a complete copyable list with tooltips", async () => {
   const [html, js, css] = await Promise.all([
     readFile("public/index.html", "utf8"),
-    readFile("dist/public/app.js", "utf8"),
+    readFrontendEntry("index.html"),
     readFile("public/styles.css", "utf8"),
   ]);
   assert.match(html, /id="phoneCommandList" class="command-list"/);
@@ -125,7 +127,7 @@ test("phone commands render as a complete copyable list with tooltips", async ()
 test("settings expose a persistent Codex connector selector", async () => {
   const [html, js, css] = await Promise.all([
     readFile("public/index.html", "utf8"),
-    readFile("dist/public/app.js", "utf8"),
+    readFrontendEntry("index.html"),
     readFile("public/styles.css", "utf8"),
   ]);
 
@@ -158,7 +160,7 @@ test("about cards use the same centered single-column width as settings", async 
 
 test("Tauri external links use the real bridge and keep a browser fallback", async () => {
   const [js, config] = await Promise.all([
-    readFile("dist/public/app.js", "utf8"),
+    readFrontendEntry("index.html"),
     readFile("src-tauri/tauri.conf.json", "utf8"),
   ]);
   assert.match(js, /const canInvokeTauri = typeof window\.__TAURI__\?\.core\?\.invoke === "function"/);
@@ -168,7 +170,7 @@ test("Tauri external links use the real bridge and keep a browser fallback", asy
 
 test("channel cards use local brand SVG icons", async () => {
   const [js, icons] = await Promise.all([
-    readFile("dist/public/app.js", "utf8"),
+    readFrontendEntry("index.html"),
     readFile("public/vendor/channel-icons.js", "utf8"),
   ]);
   for (const channel of ["feishu", "dingtalk", "wechat", "telegram"]) {
@@ -190,7 +192,7 @@ test("narrow-window layout has one responsive system and a stable sidebar", asyn
 test("color theme follows the operating system without JavaScript state", async () => {
   const [css, js] = await Promise.all([
     readFile("public/styles.css", "utf8"),
-    readFile("dist/public/app.js", "utf8"),
+    readFrontendEntry("index.html"),
   ]);
 
   assert.match(css, /:root\s*\{[^}]*color-scheme:\s*light dark/s);

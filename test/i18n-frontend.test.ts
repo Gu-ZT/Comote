@@ -1,7 +1,10 @@
 import test from "node:test";
 import assert from "node:assert/strict";
 import { readdir, readFile } from "node:fs/promises";
-const builtI18nSource = await readFile("dist/public/i18n.js", "utf8");
+
+import { readFrontendEntry } from "./helpers/frontend-build.js";
+
+const builtI18nSource = await readFrontendEntry("i18n.ts");
 const builtI18n = await import(
   `data:text/javascript;base64,${Buffer.from(builtI18nSource).toString("base64")}`
 );
