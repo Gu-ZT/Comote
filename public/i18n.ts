@@ -36,6 +36,15 @@ const DICTS = Object.fromEntries(
   localeEntries.map(({ locale, dictionary }) => [locale, dictionary]),
 ) as Record<string, WebDictionary>;
 
+const VUE_MESSAGES = Object.fromEntries(
+  localeEntries.map(({ locale, dictionary }) => [
+    locale,
+    Object.fromEntries(
+      Object.entries(dictionary).map(([key, message]) => [key, message.replaceAll("@", "{'@'}")]),
+    ),
+  ]),
+) as Record<string, WebDictionary>;
+
 export const WEB_LOCALES = Object.freeze(localeEntries.map(({ locale }) => locale));
 export const WEB_DEFAULT = WEB_LOCALES.find((locale) => locale.toLowerCase() === "zh-cn")
   ?? WEB_LOCALES[0];
@@ -47,7 +56,7 @@ export const i18n = createI18n({
   legacy: false,
   locale: WEB_DEFAULT,
   fallbackLocale: WEB_DEFAULT,
-  messages: DICTS,
+  messages: VUE_MESSAGES,
 });
 
 // Keep the compatibility helpers and Vue templates on the same reactive value.

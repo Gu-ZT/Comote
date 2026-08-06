@@ -294,14 +294,14 @@ fn main() {
             app.manage(ComoteSidecar(Mutex::new(child)));
 
             // Wait for readiness off the main thread so the window stays
-            // responsive, then navigate to the service or surface a clear error.
+            // responsive, then navigate to the app or surface a clear error.
             // This never panics and never blocks window creation.
             let window_for_wait = window.clone();
             let log_for_wait = log_path.clone();
             thread::spawn(move || {
                 if wait_for_service(PORT, READY_TIMEOUT) {
                     log_line(&log_for_wait, "Service ready; navigating to app");
-                    navigate_to_service(&window_for_wait, PORT);
+                    navigate_to_app(&window_for_wait, PORT);
                 } else {
                     log_line(&log_for_wait, "Service did not become ready before timeout");
                     // The reason the daemon never listened lives in its own
@@ -732,8 +732,17 @@ fn normalize_windows_path(path: PathBuf) -> PathBuf {
     }
 }
 
-fn navigate_to_service(window: &WebviewWindow, port: u16) {
-    let _ = window.eval(&format!("window.location.replace('http://127.0.0.1:{port}')"));
+fn app_location(port: u16, development: bool) -> String {
+    if development {
+        "/".to_string()
+    } else {
+        format!("http://127.0.0.1:{port}")
+    }
+}
+
+fn navigate_to_app(window: &WebviewWindow, port: u16) {
+    let location = app_location(port, cfg!(debug_assertions));
+    let _ = window.eval(&format!("window.location.replace('{location}')"));
 }
 
 fn show_launch_error(window: &WebviewWindow, log_path: &Path) {
@@ -1067,6 +1076,12 @@ fn log_bytes(log_path: &Path, stream: &str, bytes: &[u8]) {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn development_app_uses_vite_while_release_uses_the_daemon() {
+        assert_eq!(app_location(PORT, true), "/");
+        assert_eq!(app_location(PORT, false), "http://127.0.0.1:16208");
+    }
 
     #[test]
     fn redacts_lark_ws_url_credentials() {

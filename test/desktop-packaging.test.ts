@@ -19,6 +19,8 @@ test("desktop packaging targets the requested Tauri installer artifacts", async 
   // and the embedded Tauri version don't drift apart.
   assert.equal(tauriConfig.version, packageJson.version);
   assert.equal(tauriConfig.identifier, "dev.comote.desktop");
+  assert.equal(tauriConfig.build.beforeDevCommand, "npm run dev:web");
+  assert.equal(tauriConfig.build.devUrl, "http://127.0.0.1:1420");
   assert.deepEqual(tauriConfig.bundle.targets, ["app", "dmg", "nsis"]);
   assert.equal(tauriConfig.bundle.fileAssociations, undefined);
   assert.equal(tauriConfig.bundle.externalBin[0], "binaries/comote-node");

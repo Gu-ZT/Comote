@@ -83,11 +83,25 @@ test("Vue I18n owns the frontend message catalog", async () => {
   const source = await readFrontendSource("public/i18n.ts");
   assert.match(source, /createI18n\(/);
   assert.match(source, /fallbackLocale:\s*WEB_DEFAULT/);
-  assert.match(source, /messages:\s*DICTS/);
+  assert.match(source, /messages:\s*VUE_MESSAGES/);
   assert.match(source, /export const webLocale = ref\(WEB_DEFAULT\)/);
 
   setWebLocale("en");
   assert.equal(webLocale.value, "en-US");
   assert.equal(i18n.global.t("web.nav.connectPhone"), "Connect phone");
+  setWebLocale("zh");
+});
+
+test("Vue I18n compiles every frontend message including literal at signs", () => {
+  for (const locale of WEB_LOCALES) {
+    setWebLocale(locale);
+    for (const key of Object.keys(webDict(locale))) {
+      assert.doesNotThrow(() => i18n.global.t(key), `${locale}/${key}`);
+    }
+  }
+
+  setWebLocale("en");
+  assert.match(i18n.global.t("web.codexNotice.body"), /@openai\/codex/);
+  assert.equal(i18n.global.t("web.channel.telegram.setup.link"), "Open @BotFather");
   setWebLocale("zh");
 });

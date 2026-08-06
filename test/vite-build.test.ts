@@ -37,15 +37,17 @@ test("Vite owns the complete frontend production bundle", async () => {
   assert.equal(files.some((file) => file.startsWith("vendor/")), false);
 });
 
-test("npm and Tauri desktop builds share the Vite frontend command", async () => {
+test("Tauri uses Vite development and production commands for each mode", async () => {
   const [packageJson, tauriConfig] = await Promise.all([
     readFile("package.json", "utf8").then(JSON.parse),
     readFile("src-tauri/tauri.conf.json", "utf8").then(JSON.parse),
   ]);
 
   assert.equal(packageJson.scripts["build:web"], "vite build");
+  assert.equal(packageJson.scripts["dev:web"], "vite");
   assert.match(packageJson.scripts.build, /build:server && npm run build:web/);
-  assert.equal(tauriConfig.build.beforeDevCommand, "npm run build:web");
+  assert.equal(tauriConfig.build.beforeDevCommand, "npm run dev:web");
+  assert.equal(tauriConfig.build.devUrl, "http://127.0.0.1:1420");
   assert.equal(tauriConfig.build.beforeBuildCommand, "npm run build:web");
   assert.equal(tauriConfig.build.frontendDist, "../dist/public");
 });
