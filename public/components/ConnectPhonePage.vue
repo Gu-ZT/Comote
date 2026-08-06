@@ -1,6 +1,8 @@
 <script setup lang="ts">
 import { useI18n } from "vue-i18n";
 
+import ChannelCards from "./ChannelCards.vue";
+
 defineProps<{ active: boolean }>();
 
 const { t } = useI18n();
@@ -47,5 +49,6 @@ const { t } = useI18n();
     </div>
 
     <div id="channelCards"></div>
+    <ChannelCards />
   </section>
 </template>

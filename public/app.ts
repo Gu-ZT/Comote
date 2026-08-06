@@ -1,6 +1,5 @@
 import "./vendor/channel-icons.js";
 
-import { qrDataUrl } from "./qr-code.js";
 import {
   threadListSignature,
   newTranscriptMessages,
@@ -12,6 +11,7 @@ import {
   shouldLoadOlderTranscript,
   prependedTranscriptScrollTop,
 } from "./thread-view.js";
+import { qrDataUrl } from "./qr-code.js";
 import {
   channelBadge,
   channelRows,
@@ -129,15 +129,12 @@ if (canInvokeTauri) {
   );
 }
 
-// Generic per-channel login state: id -> { loginId, pollTimer, startCtx }.
-const activeLogin = {};
-let expandedChannelId = null; // accordion: at most one channel expanded at a time
-let lastChannels = []; // latest fetched list, so toggle handlers can re-render
-let accordionUserDecided = false; // once the user toggles any channel, stop auto-expanding pending
-// Latest channel list from GET /api/channels, kept so event handlers
-// (bind/save) can look a channel's meta up by id without re-fetching.
-let channelsById = {};
 let refreshTimer = null;
+const activeLogin = {};
+let expandedChannelId = null;
+let lastChannels = [];
+let accordionUserDecided = false;
+let channelsById = {};
 let rendering = false;
 let renderQueued = false;
 const CONVERSATION_THREAD_PAGE_SIZE = 30;
@@ -202,7 +199,6 @@ async function renderOnce() {
   // [{...meta, status, runtime, config}] — one registry-driven list drives the
   // cards, the readiness wizard, and the advanced channel dropdown.
   const channels = channelsResult.value ?? [];
-  channelsById = Object.fromEntries(channels.map((ch) => [ch.id, ch]));
 
   // The daemon being unreachable (or token-gated) is the one failure that
   // genuinely blocks everything — surface it explicitly instead of silently.
@@ -234,7 +230,6 @@ async function renderOnce() {
     .join("");
 
   renderReadiness(status.value, identities, channels);
-  renderChannels(channels);
   renderChannelDropdown(channels);
   await renderConversation(status.value, projects.value);
 }
@@ -1949,7 +1944,6 @@ window.addEventListener("comote:locale-change", (event) => {
 });
 
 async function init() {
-  setupChannelCards();
   setBridgeStatus(tWeb("web.status.starting"));
   const settings = await safeGet("/api/settings", {
     locale: "zh",
