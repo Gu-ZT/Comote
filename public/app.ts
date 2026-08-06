@@ -296,12 +296,6 @@ let channelsById = {};
 let refreshTimer = null;
 let rendering = false;
 let renderQueued = false;
-const LOG_PAGE_SIZE = 20;
-let logsEntries = [];
-let logsOldestId = null;
-let logsHasMore = false;
-let logsLoading = false;
-let logsInitialized = false;
 const CONVERSATION_THREAD_PAGE_SIZE = 30;
 const CONVERSATION_MESSAGE_PAGE_SIZE = 30;
 const conversationProjectState = new Map();
@@ -345,23 +339,21 @@ async function render() {
   }
 }
 
+window.addEventListener("comote:identities-change", () => {
+  void render().catch(() => {});
+});
+
 async function renderOnce() {
   const [
     status,
     identities,
-    candidates,
     projects,
     channelsResult,
-    approvals,
-    logs,
   ] = await Promise.all([
     safeGet("/api/status", null),
     safeGet("/api/identities", []),
-    safeGet("/api/identities/candidates", []),
     safeGet("/api/projects", []),
     safeGet("/api/channels", []),
-    safeGet("/api/approvals", []),
-    safeGet(`/api/logs?limit=${LOG_PAGE_SIZE}&offset=0`, { entries: [], total: 0, hasMore: false }),
   ]);
   // [{...meta, status, runtime, config}] — one registry-driven list drives the
   // cards, the readiness wizard, and the advanced channel dropdown.
@@ -398,12 +390,8 @@ async function renderOnce() {
     .join("");
 
   renderReadiness(status.value, identities, channels);
-  renderIdentities(identities);
-  renderCandidates(candidates);
   renderChannels(channels);
   renderChannelDropdown(channels);
-  renderApprovals(approvals);
-  renderLogs(logs);
   await renderConversation(status.value, projects.value);
 }
 
@@ -473,42 +461,6 @@ function renderReadiness(status, identitiesResult, channels) {
         </li>`,
     )
     .join("");
-}
-
-function renderIdentities(result) {
-  const target = document.querySelector("#identities");
-  if (!result.ok) {
-    target.innerHTML = sectionError(tWeb("web.connectors.error.identities"));
-    return;
-  }
-  const identities = result.value;
-  target.innerHTML =
-    identities.length === 0
-      ? `<li class="empty-list-item"><strong>${tWeb("web.identities.empty.title")}</strong><div class="meta">${tWeb("web.identities.empty.hint")}</div></li>`
-      : identities
-          .map(
-            (identity) =>
-              `<li class="list-row"><div class="list-row-copy"><strong>${escapeHtml(identity.displayName)}</strong><div class="meta identity-meta"><span>${channelName(identity.channel)}</span><span class="identity-id" title="${escapeAttr(identity.stableId)}">${escapeHtml(identity.stableId)}</span><span>${roleName(identity.role)}</span></div></div><button class="secondary-button row-action" data-remove-identity="${escapeAttr(identity.channel)}|${escapeAttr(identity.stableId)}">${tWeb("web.identities.remove")}</button></li>`,
-          )
-          .join("");
-}
-
-function renderCandidates(result) {
-  const target = document.querySelector("#identityCandidates");
-  if (!result.ok) {
-    target.innerHTML = sectionError(tWeb("web.connectors.error.candidates"));
-    return;
-  }
-  const candidates = result.value;
-  target.innerHTML =
-    candidates.length === 0
-      ? `<li class="empty-list-item"><strong>${tWeb("web.candidates.empty.title")}</strong><div class="meta">${tWeb("web.candidates.empty.hint")}</div></li>`
-      : candidates
-          .map(
-            (identity) =>
-              `<li class="list-row"><div class="list-row-copy"><strong>${escapeHtml(identity.displayName)}</strong><div class="meta identity-meta"><span>${channelName(identity.channel)}</span><span class="identity-id" title="${escapeAttr(identity.stableId)}">${escapeHtml(identity.stableId)}</span></div></div><button class="row-action" data-confirm-identity="${escapeAttr(identity.channel)}|${escapeAttr(identity.stableId)}|${escapeAttr(identity.displayName)}">${tWeb("web.candidates.confirm")}</button></li>`,
-          )
-          .join("");
 }
 
 function renderProjects(result) {
@@ -846,102 +798,6 @@ function readChannelForm(id): Record<string, string | boolean> {
 
 function cssEscapeId(value) {
   return String(value).replace(/["\\]/g, "\\$&");
-}
-
-function renderApprovals(result) {
-  const target = document.querySelector("#approvalsList");
-  const badge = document.querySelector("#approvalsBadge");
-  const navCount = document.querySelector("#approvalsNavCount");
-  if (!result.ok) {
-    target.innerHTML = sectionError(tWeb("web.connectors.error.approvals"));
-    badge.textContent = tWeb("web.approvals.badge.empty");
-    navCount.hidden = true;
-    return;
-  }
-  const approvals = result.value;
-  badge.textContent = tWeb("web.approvals.badge.count", { count: approvals.length });
-  badge.className = `badge${approvals.length > 0 ? " warning" : " neutral"}`;
-  navCount.hidden = approvals.length === 0;
-  navCount.textContent = String(approvals.length);
-  target.innerHTML =
-    approvals.length === 0
-      ? `<li><strong>${tWeb("web.approvals.empty.title")}</strong><div class="meta">${tWeb("web.approvals.empty.hint")}</div></li>`
-      : approvals
-          .map((approval) => {
-            const command = approval.params?.command ?? approval.params?.reason ?? approval.method;
-            const cwd = approval.params?.cwd ?? "";
-            return `<li class="list-row approval-row"><span class="approval-copy"><strong>${escapeHtml(command)}</strong><div class="meta">${escapeHtml(approval.id)}</div><div class="meta">${escapeHtml(cwd)}</div></span><span class="button-row approval-actions"><button data-approval="${escapeAttr(approval.id)}|accept">${tWeb("web.approvals.accept")}</button><button class="secondary-button" data-approval="${escapeAttr(approval.id)}|acceptForSession">${tWeb("web.approvals.acceptForSession")}</button><button class="secondary-button" data-approval="${escapeAttr(approval.id)}|decline">${tWeb("web.approvals.decline")}</button></span></li>`;
-          })
-          .join("");
-}
-
-// D-1 (lite): render an event's detail as one `key: value` per line instead of
-// a raw JSON blob. Nested objects/arrays keep indented JSON as the value.
-function formatLogDetail(detail) {
-  if (detail == null) {
-    return "";
-  }
-  if (typeof detail !== "object") {
-    return String(detail);
-  }
-  if (Array.isArray(detail)) {
-    return JSON.stringify(detail, null, 2);
-  }
-  return Object.entries(detail)
-    .map(([key, value]) =>
-      `${key}: ${value !== null && typeof value === "object" ? JSON.stringify(value, null, 2) : String(value)}`)
-    .join("\n");
-}
-
-function renderLogEntries(entries) {
-  return entries
-    .map((entry) => {
-      const detailText = formatLogDetail(entry.detail);
-      const detail = detailText ? `<div class="meta log-detail">${escapeHtml(detailText)}</div>` : "";
-      return `<li class="log-row log-${escapeAttr(entry.level)}"><span class="log-time">${escapeHtml(formatTime(entry.at))}</span><span><strong>${escapeHtml(entry.message)}</strong>${detail}</span></li>`;
-    })
-    .join("");
-}
-
-function paintLogs() {
-  const target = document.querySelector("#logList");
-  if (!target) return;
-  if (logsEntries.length === 0) {
-    target.innerHTML = `<li><strong>${tWeb("web.logs.empty.title")}</strong><div class="meta">${tWeb("web.logs.empty.hint")}</div></li>`;
-    return;
-  }
-  target.innerHTML = renderLogEntries(logsEntries);
-  if (logsLoading) {
-    target.insertAdjacentHTML("beforeend", `<li class="logs-loading meta" aria-live="polite">${escapeHtml(tWeb("web.logs.loading"))}</li>`);
-  }
-}
-
-function mergeLogEntries(entries) {
-  const byId = new Map();
-  for (const entry of [...entries, ...logsEntries]) {
-    if (entry?.id != null && !byId.has(entry.id)) {
-      byId.set(entry.id, entry);
-    }
-  }
-  return [...byId.values()].sort((a, b) => Number(b.id ?? 0) - Number(a.id ?? 0));
-}
-
-function renderLogs(result) {
-  const target = document.querySelector("#logList");
-  if (!target) return;
-  if (!result.ok) {
-    if (!logsInitialized) {
-      target.innerHTML = sectionError(tWeb("web.connectors.error.logs"));
-    }
-    return;
-  }
-  const data = result.value;
-  logsEntries = logsInitialized ? mergeLogEntries(data.entries ?? []) : data.entries ?? [];
-  logsHasMore = logsHasMore || Boolean(data.hasMore);
-  logsOldestId = logsEntries.at(-1)?.id ?? null;
-  logsInitialized = true;
-  paintLogs();
-  queueMicrotask(maybeLoadMoreLogs);
 }
 
 const OPENAI_AVATAR_ICON = `<svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true"><path d="M22.2819 9.8211a5.9847 5.9847 0 0 0-.5157-4.9108 6.0462 6.0462 0 0 0-6.5098-2.9A6.0651 6.0651 0 0 0 4.9807 4.1818a5.9847 5.9847 0 0 0-3.9977 2.9 6.0462 6.0462 0 0 0 .7427 7.0966 5.98 5.98 0 0 0 .511 4.9107 6.051 6.051 0 0 0 6.5146 2.9001A5.9847 5.9847 0 0 0 13.2599 24a6.0557 6.0557 0 0 0 5.7718-4.2058 5.9894 5.9894 0 0 0 3.9977-2.9001 6.0557 6.0557 0 0 0-.7475-7.0729zm-9.022 12.6081a4.4755 4.4755 0 0 1-2.8764-1.0408l.1419-.0804 4.7783-2.7582a.7948.7948 0 0 0 .3927-.6813v-6.7369l2.02 1.1686a.071.071 0 0 1 .038.052v5.5826a4.504 4.504 0 0 1-4.4945 4.4944zm-9.6607-4.1254a4.4708 4.4708 0 0 1-.5346-3.0137l.142.0852 4.783 2.7582a.7712.7712 0 0 0 .7806 0l5.8428-3.3685v2.3324a.0804.0804 0 0 1-.0332.0615L9.74 19.9502a4.4992 4.4992 0 0 1-6.1408-1.6464zM2.3408 7.8956a4.485 4.485 0 0 1 2.3655-1.9728V11.6a.7664.7664 0 0 0 .3879.6765l5.8144 3.3543-2.0201 1.1685a.0757.0757 0 0 1-.071 0l-4.8303-2.7865A4.504 4.504 0 0 1 2.3408 7.872zm16.5963 3.8558L13.1038 8.364 15.1192 7.2a.0757.0757 0 0 1 .071 0l4.8303 2.7913a4.4944 4.4944 0 0 1-.6765 8.1042v-5.6772a.79.79 0 0 0-.407-.667zm2.0107-3.0231l-.142-.0852-4.7735-2.7818a.7759.7759 0 0 0-.7854 0L9.409 9.2297V6.8974a.0662.0662 0 0 1 .0284-.0615l4.8303-2.7866a4.4992 4.4992 0 0 1 6.6802 4.66zM8.3065 12.863l-2.02-1.1638a.0804.0804 0 0 1-.038-.0567V6.0742a4.4992 4.4992 0 0 1 7.3757-3.4537l-.142.0805L8.704 5.459a.7948.7948 0 0 0-.3927.6813zm1.0976-2.3654l2.602-1.4998 2.6069 1.4998v2.9994l-2.5974 1.4997-2.6067-1.4997Z"/></svg>`;
@@ -1671,10 +1527,6 @@ document.querySelector("#apiTokenInput").addEventListener("keydown", async (even
   }
 });
 
-document.querySelector("#refreshLogs").addEventListener("click", async () => {
-  await render();
-});
-
 document.querySelector("#identityForm").addEventListener("submit", async (event) => {
   event.preventDefault();
   const form = event.currentTarget as HTMLFormElement;
@@ -1687,37 +1539,7 @@ document.querySelector("#identityForm").addEventListener("submit", async (event)
     }),
   );
   form.reset();
-  await render();
-});
-
-document.querySelector("#identityCandidates").addEventListener("click", async (event) => {
-  const value = event.target?.dataset?.confirmIdentity;
-  if (!value) {
-    return;
-  }
-  const [channel, stableId, displayName] = value.split("|");
-  await guardedAction(() =>
-    getJson("/api/identities/confirm", {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ channel, stableId, displayName }),
-    }),
-  );
-  await render();
-});
-
-document.querySelector("#identities").addEventListener("click", async (event) => {
-  const value = event.target?.dataset?.removeIdentity;
-  if (!value) {
-    return;
-  }
-  const [channel, stableId] = value.split("|");
-  await guardedAction(() =>
-    getJson(`/api/identities/${encodeURIComponent(channel)}/${encodeURIComponent(stableId)}`, {
-      method: "DELETE",
-    }),
-  );
-  await render();
+  window.dispatchEvent(new CustomEvent("comote:identities-change"));
 });
 
 async function connectCodexDesktop({ button = null } = {}) {
@@ -1771,22 +1593,6 @@ document.querySelector("#discoverProjects")?.addEventListener("click", async () 
   }
 });
 
-
-document.querySelector("#approvalsList").addEventListener("click", async (event) => {
-  const value = event.target?.dataset?.approval;
-  if (!value) {
-    return;
-  }
-  const [id, decision] = value.split("|");
-  await guardedAction(() =>
-    getJson(`/api/approvals/${encodeURIComponent(id)}`, {
-      method: "POST",
-      headers: { "content-type": "application/json" },
-      body: JSON.stringify({ decision }),
-    }),
-  );
-  await render();
-});
 
 // Channel bind/save buttons are handled by ONE delegated listener on the stable
 // #channelCards container (setupChannelCards), wired once in init() — no
@@ -2008,20 +1814,6 @@ function normalizeQrImageSource(value) {
 // channelsById by renderOnce) so dingtalk/telegram identities don't show a bare
 // channel id. The wechat/feishu dictionary names remain as a fallback for the
 // window before the first /api/channels response lands.
-function channelName(channel) {
-  const meta = channelsById[channel];
-  if (meta?.displayName) return meta.displayName;
-  if (channel === "wechat") return tWeb("web.channelName.wechat");
-  if (channel === "feishu") return tWeb("web.channelName.feishu");
-  return channel;
-}
-
-function roleName(role) {
-  if (role === "owner") return tWeb("web.role.owner");
-  if (role === "member") return tWeb("web.role.member");
-  return role;
-}
-
 function humanConnectorState(state) {
   if (state === "connected") return tWeb("web.connector.connected");
   if (state === "available") return tWeb("web.connector.available");
@@ -2242,46 +2034,6 @@ document.querySelector("#threads")?.addEventListener("click", async (event) => {
   rememberThreadDetail(row, panel);
 });
 
-function logsPageIsActive() {
-  return document.querySelector("#logs")?.classList.contains("active") ?? false;
-}
-
-function logsNearBottom() {
-  return window.innerHeight + window.scrollY >= document.documentElement.scrollHeight - 160;
-}
-
-async function loadMoreLogs() {
-  if (!logsPageIsActive() || logsLoading || !logsHasMore) return;
-  logsLoading = true;
-  paintLogs();
-  const before = logsOldestId === null ? "" : `&before=${encodeURIComponent(logsOldestId)}`;
-  const result = await safeGet(`/api/logs?limit=${LOG_PAGE_SIZE}${before}`, { entries: [], total: 0, hasMore: false });
-  if (result.ok) {
-    const olderEntries = result.value.entries ?? [];
-    logsEntries = mergeLogEntries(olderEntries);
-    logsOldestId = logsEntries.at(-1)?.id ?? logsOldestId;
-    logsHasMore = Boolean(result.value.hasMore) && olderEntries.length > 0;
-  }
-  logsLoading = false;
-  paintLogs();
-  if (result.ok && logsHasMore && logsNearBottom()) {
-    queueMicrotask(() => loadMoreLogs().catch(() => {}));
-  }
-}
-
-function maybeLoadMoreLogs() {
-  if (logsPageIsActive() && logsNearBottom()) {
-    loadMoreLogs().catch(() => {});
-  }
-}
-
-window.addEventListener("scroll", maybeLoadMoreLogs, { passive: true });
-window.addEventListener("comote:route-change", (event: CustomEvent<{ page?: string }>) => {
-  if (event.detail?.page === "logs") {
-    queueMicrotask(maybeLoadMoreLogs);
-  }
-});
-
 document.querySelector("#conversationTree")?.addEventListener("click", async (event) => {
   const loadMore = event.target.closest("[data-project-load-more]");
   if (loadMore) {
@@ -2404,20 +2156,12 @@ function includePrereleasesPreference() {
   return localStorage.getItem("comoteIncludePrereleases") === "true";
 }
 
-function syncIncludePrereleasesCheckbox(data) {
-  const checkbox = document.querySelector("#includePrereleases");
-  if (!checkbox) return;
-  const stored = localStorage.getItem("comoteIncludePrereleases");
-  checkbox.checked = stored === null ? Boolean(data?.includePrereleases) : stored === "true";
-}
-
 async function refreshVersionStatus() {
   const versionEl = document.querySelector("#sidebarVersion");
   const banner = document.querySelector("#updateNotice");
   const versionResult = await safeGet("/api/version", null);
   const data = versionResult.ok ? versionResult.value : null;
   const current = data?.version ?? null;
-  syncIncludePrereleasesCheckbox(data);
   if (versionEl) {
     if (current && data?.hasUpdate && data.latest) {
       versionEl.textContent = tWeb("web.version.withUpdate", { current, latest: data.latest });
@@ -2457,24 +2201,6 @@ async function refreshVersionStatus() {
       banner.hidden = true;
     }
   }
-  const aboutCurrent = document.querySelector("#aboutCurrentVersion");
-  const aboutLatest = document.querySelector("#aboutLatestVersion");
-  const aboutLink = document.querySelector("#aboutReleasesLink");
-  if (aboutCurrent) aboutCurrent.textContent = current ?? tWeb("web.version.unknown");
-  if (aboutLatest) {
-    if (data?.latest) {
-      aboutLatest.textContent = data.hasUpdate
-        ? tWeb("web.about.latestHasUpdate", { latest: data.latest })
-        : tWeb("web.about.latestUpToDate", { latest: data.latest });
-    } else if (data?.error) {
-      aboutLatest.textContent = tWeb("web.about.checkFailed", { error: data.error });
-    } else {
-      aboutLatest.textContent = tWeb("web.about.noRelease");
-    }
-  }
-  if (aboutLink && data?.releaseUrl) {
-    aboutLink.href = data.releaseUrl;
-  }
   return data;
 }
 
@@ -2497,37 +2223,8 @@ document.querySelector("#refreshConnect")?.addEventListener("click", async (even
   }
 });
 
-document.querySelector("#refreshUsers")?.addEventListener("click", async (event) => {
-  const button = event.currentTarget;
-  button.disabled = true;
-  const original = button.textContent;
-  button.textContent = tWeb("web.button.refreshing");
-  try {
-    await render();
-  } finally {
-    button.disabled = false;
-    button.textContent = original;
-  }
-});
-
-document.querySelector("#aboutCheckUpdate")?.addEventListener("click", async (event) => {
-  const button = event.currentTarget;
-  button.disabled = true;
-  const original = button.textContent;
-  button.textContent = tWeb("web.about.checking");
-  try {
-    const checkbox = document.querySelector("#includePrereleases");
-    await checkVersionNow(Boolean(checkbox?.checked));
-  } catch (error) {
-    window.alert(tWeb("web.about.checkUpdateFailed", { message: error.message }));
-  } finally {
-    button.disabled = false;
-    button.textContent = original;
-  }
-});
-
-document.querySelector("#includePrereleases")?.addEventListener("change", (event) => {
-  localStorage.setItem("comoteIncludePrereleases", String(event.currentTarget.checked));
+window.addEventListener("comote:version-change", () => {
+  void refreshVersionStatus().catch(() => {});
 });
 
 init().catch((error) => {

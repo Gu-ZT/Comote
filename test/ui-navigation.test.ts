@@ -19,7 +19,7 @@ async function frontendSources() {
     readFile("public/styles.css", "utf8"),
   ]);
   const pages = [connectPhone, users, phoneCommands, approvals, conversation, logs, settings, about].join("\n");
-  return { app, controller, router, main, connectPhone, phoneCommands, conversation, settings, about, pages, css };
+  return { app, controller, router, main, connectPhone, users, phoneCommands, approvals, conversation, logs, settings, about, pages, css };
 }
 
 test("Vue Router drives every exclusive sidebar page", async () => {
@@ -76,22 +76,34 @@ test("conversation history keeps its project tree and split reader", async () =>
   assert.match(css, /\.conversation-messages\s*\{[^}]*overflow-y:\s*auto/s);
 });
 
-test("dynamic identity and channel text remains constrained", async () => {
-  const { controller, css } = await frontendSources();
+test("logs use Vue pagination state instead of controller HTML painting", async () => {
+  const { logs, controller } = await frontendSources();
 
-  assert.match(controller, /class="identity-id" title=/);
+  assert.match(logs, /v-for="entry in entries"/);
+  assert.match(logs, /before=\$\{encodeURIComponent\(String\(oldest\)\)\}/);
+  assert.doesNotMatch(controller, /renderLogs\(logs\)|paintLogs\(logs\)/);
+});
+
+test("dynamic identity and channel text remains constrained", async () => {
+  const { users, controller, css } = await frontendSources();
+
+  assert.match(users, /class="identity-id" :title=/);
+  assert.match(users, /v-for="identity in identities"/);
+  assert.doesNotMatch(controller, /renderIdentities|renderCandidates/);
   assert.match(css, /\.list-row-copy\s*\{[^}]*min-width:\s*0/s);
   assert.match(css, /\.identity-meta \.identity-id\s*\{[^}]*text-overflow:\s*ellipsis/s);
   assert.match(css, /\.channel-row-head \.ch-summary[\s\S]*text-overflow:\s*ellipsis/);
 });
 
 test("desktop approvals keep all three decisions", async () => {
-  const { controller, css } = await frontendSources();
+  const { approvals, controller, css } = await frontendSources();
   const dictionary = await readFile("src/i18n/en-US.json", "utf8");
 
-  assert.match(controller, /\|acceptForSession/);
+  assert.match(approvals, /decide\(approval, 'acceptForSession'\)/);
   assert.match(dictionary, /web\.approvals\.acceptForSession/);
-  assert.match(controller, /class="list-row approval-row"/);
+  assert.match(approvals, /class="list-row approval-row"/);
+  assert.match(approvals, /v-for="approval in approvals"/);
+  assert.doesNotMatch(controller, /renderApprovals|approvalsList/);
   assert.match(css, /\.approval-actions\s*\{[^}]*grid-template-columns:\s*repeat\(3/s);
   assert.match(css, /@media \(max-width: 560px\)[\s\S]*\.approval-actions\s*\{[^}]*grid-template-columns:\s*1fr/s);
 });
@@ -132,6 +144,9 @@ test("about page and desktop external links remain wired", async () => {
   const config = await readFile("src-tauri/tauri.conf.json", "utf8");
 
   assert.match(about, /<div class="about-grid">/);
+  assert.match(about, /async function checkUpdate\(\)/);
+  assert.match(about, /v-model="includePrereleases"/);
+  assert.doesNotMatch(controller, /#aboutCurrentVersion|#aboutCheckUpdate|#includePrereleases/);
   assert.match(css, /\.about-grid\s*\{[^}]*grid-template-columns:\s*minmax\(0, 760px\)[^}]*justify-content:\s*center/s);
   assert.match(controller, /const canInvokeTauri = typeof window\.__TAURI__\?\.core\?\.invoke === "function"/);
   assert.match(controller, /if \(canInvokeTauri\)/);
