@@ -11,8 +11,15 @@ import { CommandRouter } from "../core/commands.js";
 import { ProjectStore } from "../core/projects.js";
 import { scanLocalProjects as defaultScanLocalProjects } from "../core/local-projects.js";
 import { SessionStore } from "../core/sessions.js";
+import { makeSessionKey, parseSessionKey, toSessionRef } from "../core/session-key.js";
 import { CodexDesktopConnector, normalizeCodexErrorText } from "../connectors/codex-desktop/index.js";
 import { CodexCliConnector } from "../connectors/codex-cli/index.js";
+import {
+  CODEX_CLI_CONNECTOR,
+  CODEX_DESKTOP_CONNECTOR,
+  registerConnector,
+} from "../connectors/contracts.js";
+import { createConnectorRegistry } from "../connectors/registry.js";
 import feishuPlugin from "../channels/feishu/index.js";
 import wechatPlugin from "../channels/wechat/index.js";
 import dingtalkPlugin from "../channels/dingtalk/index.js";
@@ -28,7 +35,7 @@ import { VersionChecker } from "../core/version-check.js";
 import { setLocale as setI18nLocale, DEFAULT_LOCALE, t } from "../core/i18n/index.js";
 
 // Shown on a live card when the Codex Desktop connection drops. The connection
-// events are logged with hardcoded Chinese strings throughout routeDesktopEvent
+// events are logged with hardcoded Chinese strings throughout routeConnectorEvent
 // (they predate i18n); this mirrors that wording so the card matches the log.
 const DISCONNECT_NOTICE = "与 Codex Desktop 的连接已断开";
 
@@ -67,6 +74,7 @@ export function createComoteState({
   autoStartTelegramRuntime = true,
   autoStartDelayMs = 5_000,
   desktop: desktopOverride = null,
+  cli: cliOverride = null,
   currentVersion = null,
   versionChecker = null,
   milestoneOptions = {},
@@ -98,7 +106,11 @@ export function createComoteState({
   });
   const transcript = new Transcript({ entries: persisted.transcript ?? [] });
   const desktop = desktopOverride ?? new CodexDesktopConnector();
-  const cli = new CodexCliConnector();
+  const cli = cliOverride ?? new CodexCliConnector();
+  const connectorRegistry = createConnectorRegistry([
+    registerConnector(CODEX_DESKTOP_CONNECTOR, desktop),
+    registerConnector(CODEX_CLI_CONNECTOR, cli),
+  ]);
 
   const outboundReplies = new OutboundQueue({
     entries: persisted.outboundReplies ?? [],
@@ -160,6 +172,7 @@ export function createComoteState({
     sessions,
     codexDesktop: desktop,
     codexCli: cli,
+    connectorRegistry,
     outboundQueue: outboundReplies,
     persist: async () => stateRef.persist?.(),
     persisted: persisted.router ?? {},
@@ -452,14 +465,14 @@ export function createComoteState({
     channelStacks.set(id, stack);
   }
 
-  // routeDesktopEvent + auto-start use these runtimes directly (live thread
+  // routeConnectorEvent + auto-start use these runtimes directly (live thread
   // cards / typing) — keep them as locals so that logic is UNCHANGED.
   const feishuRuntime = channelStacks.get("feishu").runtime;
   const wechatRuntime = channelStacks.get("wechat").runtime;
 
   // Returns the runtime for a channel IF it supports live status cards (the
   // liveUpdates capability + the open/update/finish/buildStatusCard methods).
-  // Drives routeDesktopEvent's live-card path channel-agnostically. feishu and
+  // Drives routeConnectorEvent's live-card path channel-agnostically. feishu and
   // dingtalk qualify; wechat does not. liveCardRuntime("feishu") === feishuRuntime,
   // so every feishu live-card path behaves exactly as it did when hardcoded.
   //
@@ -535,7 +548,7 @@ export function createComoteState({
         ...(binding.accountId ? { accountId: binding.accountId } : {}),
         kind: "text",
         text: t("state.disconnect.reply"),
-        dedupeKey: `disconnect:${threadId}:${turnNonce(threadId)}`,
+        dedupeKey: `disconnect:${dedupeSessionToken(threadId)}:${turnNonce(threadId)}`,
       });
       deliverIfPush(binding.channel);
     }
@@ -817,7 +830,11 @@ export function createComoteState({
       [...channelStacks].map(([id, stack]) => [id, stack.adapter]),
     ),
     registry,
+    connectorRegistry,
     runtime,
+    routeConnectorEvent(event, connectorId = "desktop") {
+      return routeConnectorEvent(event, connectorId);
+    },
     connectors: {
       desktop,
       cli,
@@ -975,6 +992,21 @@ export function createComoteState({
   // turn/completed notification arrives. They remain addressable by turnId so
   // the old completion can finish the old message instead of the new card.
   const detachedCardsByThread = new Map();
+  // Outbound dedupe keys keep their historical raw-thread form for Codex Desktop.
+  // Other connectors add an encoded connector prefix so equal raw session/item ids
+  // cannot collapse each other's replies in the shared outbound queue.
+  const dedupeSessionToken = (sessionKey) => {
+    const ref = toSessionRef(sessionKey);
+    return ref.connectorId === "desktop"
+      ? ref.rawSessionId
+      : `${encodeURIComponent(ref.connectorId)}~${encodeURIComponent(ref.rawSessionId)}`;
+  };
+  const connectorScopedDedupeKey = (prefix, sessionKey, suffix) => {
+    const ref = toSessionRef(sessionKey);
+    return ref.connectorId === "desktop"
+      ? `${prefix}:${suffix}`
+      : `${prefix}:${dedupeSessionToken(ref.sessionKey)}:${suffix}`;
+  };
   // The current turn nonce for a thread, used by the agent: fallback key when
   // itemId is absent. Defaults to 0 for a thread with no turn yet.
   const turnNonce = (threadId) => turnNonceByThread.get(threadId) ?? 0;
@@ -989,95 +1021,98 @@ export function createComoteState({
     if (!active || event.turnId == null) return true;
     return String(active.turnId) === String(event.turnId);
   };
-  const recordCapacityError = (threadId) => {
-    if (!settings.capacityRetryEnabled || threadId == null) {
-      return null;
-    }
-    const previous = capacityRetryByThread.get(threadId) ?? { count: 0, pending: false, stopped: false };
+  const recordCapacityError = (sessionKey) => {
+    if (!settings.capacityRetryEnabled || sessionKey == null) return null;
+    const ref = toSessionRef(sessionKey);
+    if (!connectorRegistry.supports(ref.connectorId, "capacityRetry")) return null;
+    const previous = capacityRetryByThread.get(ref.sessionKey)
+      ?? { count: 0, pending: false, stopped: false };
     const count = previous.count + 1;
     const limit = settings.capacityRetryLimit;
-    const retry = {
-      count,
-      pending: count < limit,
-      stopped: count >= limit,
-    };
-    capacityRetryByThread.set(threadId, retry);
+    const retry = { count, pending: count < limit, stopped: count >= limit };
+    capacityRetryByThread.set(ref.sessionKey, retry);
     return { ...retry, limit };
   };
   const isNoActiveTurnError = (error) => /no active turn|active turn.*not found/i.test(
     error?.message ?? String(error),
   );
-  const stopCapacityRetryTask = async (threadId, count, limit) => {
+  const stopCapacityRetryTask = async (sessionKey, count, limit) => {
+    const ref = toSessionRef(sessionKey);
+    const connector = connectorRegistry.getConnector(ref.connectorId);
     try {
-      if (typeof desktop.cancelTurn === "function") {
-        await desktop.cancelTurn({ threadId });
+      if (connectorRegistry.supports(ref.connectorId, "cancel") && typeof connector?.cancelTurn === "function") {
+        await connector.cancelTurn({ threadId: ref.rawSessionId });
       }
       eventLog.warn("Codex 容量错误达到上限，已停止当前任务", {
-        threadId,
+        connectorId: ref.connectorId,
+        threadId: ref.rawSessionId,
         count,
         limit,
       });
     } catch (error) {
       if (isNoActiveTurnError(error)) {
         eventLog.warn("Codex 容量错误达到上限，当前任务已结束", {
-          threadId,
+          connectorId: ref.connectorId,
+          threadId: ref.rawSessionId,
           count,
           limit,
         });
         return;
       }
       eventLog.error("停止 Codex 容量重试任务失败", {
-        threadId,
+        connectorId: ref.connectorId,
+        threadId: ref.rawSessionId,
         count,
         limit,
         error: error?.message ?? String(error),
       });
     }
   };
-  const startCapacityRetry = async (threadId, cwd, count, limit) => {
-    const retry = capacityRetryByThread.get(threadId);
-    if (!retry || retry.count !== count || !settings.capacityRetryEnabled) {
-      return;
-    }
+  const startCapacityRetry = async (sessionKey, cwd, count, limit) => {
+    const ref = toSessionRef(sessionKey);
+    const retry = capacityRetryByThread.get(ref.sessionKey);
+    const connector = connectorRegistry.getConnector(ref.connectorId);
+    if (!retry || retry.count !== count || !settings.capacityRetryEnabled) return;
+    if (!connectorRegistry.supports(ref.connectorId, "capacityRetry")) return;
     if (count >= settings.capacityRetryLimit) {
       retry.pending = false;
       retry.stopped = true;
-      void stopCapacityRetryTask(threadId, count, settings.capacityRetryLimit);
+      void stopCapacityRetryTask(ref.sessionKey, count, settings.capacityRetryLimit);
       return;
     }
     try {
-      if (typeof desktop.resumeThread === "function") {
-        await desktop.resumeThread({ threadId, cwd });
+      if (typeof connector?.resumeThread === "function") {
+        await connector.resumeThread({ threadId: ref.rawSessionId, cwd });
       }
-      if (!settings.capacityRetryEnabled || capacityRetryByThread.get(threadId)?.count !== count) {
-        autoContinuationThreads.delete(threadId);
+      if (!settings.capacityRetryEnabled || capacityRetryByThread.get(ref.sessionKey)?.count !== count) {
+        autoContinuationThreads.delete(ref.sessionKey);
         return;
       }
-      if (typeof desktop.startTurn !== "function") {
-        throw new Error("Codex Desktop 不支持自动继续");
+      if (typeof connector?.startTurn !== "function") {
+        throw new Error(`${ref.connectorId} 不支持自动继续`);
       }
-      // Mark this before startTurn: a test transport or a fast app-server can
-      // emit turn/started before the RPC promise resolves.
-      autoContinuationThreads.add(threadId);
-      transcript.record(threadId, "user", "继续");
-      await desktop.startTurn({
-        threadId,
+      autoContinuationThreads.add(ref.sessionKey);
+      transcript.record(ref.sessionKey, "user", "继续");
+      await connector.startTurn({
+        threadId: ref.rawSessionId,
         text: "继续",
         cwd,
         images: [],
-        ...commandRouter.getThreadSettings(threadId),
+        ...commandRouter.getThreadSettings(ref.sessionKey),
       });
       eventLog.info("Codex 容量错误，已自动发送继续", {
-        threadId,
+        connectorId: ref.connectorId,
+        threadId: ref.rawSessionId,
         count,
         limit,
       });
       persistInBackground();
     } catch (error) {
-      autoContinuationThreads.delete(threadId);
-      capacityRetryByThread.delete(threadId);
+      autoContinuationThreads.delete(ref.sessionKey);
+      capacityRetryByThread.delete(ref.sessionKey);
       eventLog.error("自动发送继续失败", {
-        threadId,
+        connectorId: ref.connectorId,
+        threadId: ref.rawSessionId,
         count,
         limit,
         error: error?.message ?? String(error),
@@ -1127,13 +1162,13 @@ export function createComoteState({
   const markMilestonePersistDirty = () => {
     milestonePersistDirty = true;
   };
-  // The agentMessage dedupeKey. Keyed on the codex itemId when present (so an
-  // actual same-item retry still collapses to one delivery); when codex omits it,
-  // fall back to <thread>:<turnNonce> instead of bare <thread>. Without the nonce
-  // the fallback repeats every turn, so turn N+1's final agentMessage reuses turn
-  // N's still-retained key and the outbound queue silently drops it.
-  const agentDedupeKey = (event) =>
-    `agent:${event.itemId ?? `${event.threadId}:${event.turnId ?? turnNonce(event.threadId)}`}`;
+  // The agentMessage dedupeKey. An explicit connector itemId remains the stable
+  // retry identity, scoped only for non-Desktop connectors so Desktop keys stay
+  // byte-for-byte compatible. Without itemId, use the connector-aware thread token
+  // plus turn identity so later turns and equal raw ids cannot collapse each other.
+  const agentDedupeKey = (event) => event.itemId != null
+    ? connectorScopedDedupeKey("agent", event.threadId, event.itemId)
+    : `agent:${dedupeSessionToken(event.threadId)}:${event.turnId ?? turnNonce(event.threadId)}`;
   const flushMilestonePersist = () => {
     if (!milestonePersistDirty) return;
     milestonePersistDirty = false;
@@ -1143,13 +1178,19 @@ export function createComoteState({
   const msMaxPerTurn = milestoneOptions.maxPerTurn ?? MILESTONE_MAX_PER_TURN;
   const msHeartbeatMs = milestoneOptions.heartbeatMs ?? HEARTBEAT_MS;
 
-  desktop.onEvent = (event) => {
-    try {
-      routeDesktopEvent(event);
-    } catch (error) {
-      eventLog.error("处理 Codex 事件失败", { error: error.message });
-    }
-  };
+  for (const registration of connectorRegistry.listConnectors()) {
+    if (!registration.definition.capabilities.streamingEvents) continue;
+    registration.connector.onEvent = (event) => {
+      try {
+        routeConnectorEvent(event, registration.definition.id);
+      } catch (error) {
+        eventLog.error("处理 Connector 事件失败", {
+          connectorId: registration.definition.id,
+          error: error.message,
+        });
+      }
+    };
+  }
 
   // Fire-and-forget persist that never rejects. persist() touches the disk and
   // can fail (EACCES, ENOSPC, a serialization throw); without a .catch the
@@ -1161,7 +1202,32 @@ export function createComoteState({
     );
   }
 
-  function routeDesktopEvent(event) {
+  function namespaceConnectorEvent(input, sourceConnectorId = "desktop") {
+    let connectorId = sourceConnectorId;
+    const event = { ...input, connectorId };
+    if (input?.threadId) {
+      const ref = toSessionRef(input.threadId, connectorId);
+      connectorId = ref.connectorId;
+      event.connectorId = ref.connectorId;
+      event.rawThreadId = ref.rawSessionId;
+      event.sessionKey = ref.sessionKey;
+      event.threadId = ref.sessionKey;
+    }
+    if (input?.approval?.threadId) {
+      const approvalRef = toSessionRef(input.approval.threadId, connectorId);
+      event.approval = {
+        ...input.approval,
+        connectorId: approvalRef.connectorId,
+        rawThreadId: approvalRef.rawSessionId,
+        sessionKey: approvalRef.sessionKey,
+        threadId: approvalRef.sessionKey,
+      };
+    }
+    return event;
+  }
+
+  function routeConnectorEvent(input, sourceConnectorId = "desktop") {
+    const event = namespaceConnectorEvent(input, sourceConnectorId);
     if (event.type === "turnStarted") {
       const isAutoContinuation = autoContinuationThreads.delete(event.threadId);
       const previousTurn = activeTurnByThread.get(event.threadId);
@@ -1242,7 +1308,7 @@ export function createComoteState({
           ...(startedBinding.accountId ? { accountId: startedBinding.accountId } : {}),
           kind: "text",
           text: t("card.phase.started"),
-          dedupeKey: `turnstart:${event.threadId}:${turnNonce(event.threadId)}`,
+          dedupeKey: `turnstart:${dedupeSessionToken(event.threadId)}:${turnNonce(event.threadId)}`,
         });
         deliverIfPush(startedBinding.channel);
       }
@@ -1357,7 +1423,11 @@ export function createComoteState({
             code: event.approval.shortCode,
             approval: event.approval,
             decision: event.decision,
-            dedupeKey: `approval-resolved:${event.approval.id}`,
+            dedupeKey: connectorScopedDedupeKey(
+              "approval-resolved",
+              event.approval.threadId,
+              event.approval.id,
+            ),
           });
           deliverIfPush(binding.channel);
         };
@@ -1450,7 +1520,7 @@ export function createComoteState({
             ...(binding.accountId ? { accountId: binding.accountId } : {}),
             kind: "text",
             text: t("state.progress.reply", { steps: entry.count }),
-            dedupeKey: `progress:${event.threadId}:${now}`,
+            dedupeKey: `progress:${dedupeSessionToken(event.threadId)}:${now}`,
           });
           deliverIfPush(binding.channel);
         }
@@ -1585,7 +1655,11 @@ export function createComoteState({
           code: event.approval.shortCode,
           approval: event.approval,
           ...(liveCardAttempted ? { liveCardAttempted: true } : {}),
-          dedupeKey: `approval:${event.approval.id}`,
+          dedupeKey: connectorScopedDedupeKey(
+            "approval",
+            event.approval.threadId,
+            event.approval.id,
+          ),
         });
         deliverIfPush(binding.channel);
       };
@@ -1677,7 +1751,7 @@ export function createComoteState({
         ...(binding.accountId ? { accountId: binding.accountId } : {}),
         kind: "text",
         text: t("state.error.reply", { message: errorMessage }),
-        dedupeKey: `error:${event.threadId ?? ""}:${Date.now()}`,
+        dedupeKey: `error:${dedupeSessionToken(event.threadId ?? "")}:${Date.now()}`,
       });
       deliverIfPush(binding.channel);
       persistInBackground();
@@ -1716,6 +1790,7 @@ export function createComoteState({
     teardownMilestoneState(turnKey);
     const state = {
       threadId,
+      dedupeToken: dedupeSessionToken(threadId),
       turn: turnNonce(threadId), // per-thread turn nonce, folded into the dedupeKey
       seq: 0, // per-turn delivery counter — feeds the dedupeKey AND gates the cap
       last: null, // last delivered {kind,label} for consecutive-dedup
@@ -1825,7 +1900,7 @@ export function createComoteState({
     deliverMilestone(turnKey, state, binding, text, latest);
   }
 
-  // Enqueues one milestone text reply with an ms:<thread>:<turn>:<seq> dedupeKey
+  // Enqueues one milestone text reply with an ms:<thread-token>:<turn>:<seq> dedupeKey
   // (turn is the monotonic per-thread nonce, seq the per-turn counter — together
   // cross-turn unique without a wall-clock stamp; seq also gates the per-turn cap)
   // and resets the throttle/dedup/heartbeat bookkeeping. Deliberately does NOT
@@ -1844,7 +1919,7 @@ export function createComoteState({
       ...(binding.accountId ? { accountId: binding.accountId } : {}),
       kind: "text",
       text,
-      dedupeKey: `ms:${state.threadId}:${state.turn}:${state.seq}`,
+      dedupeKey: `ms:${state.dedupeToken}:${state.turn}:${state.seq}`,
     });
     deliverIfPush(binding.channel);
     markMilestonePersistDirty();
@@ -1868,7 +1943,7 @@ export function createComoteState({
       ...(binding.accountId ? { accountId: binding.accountId } : {}),
       kind: "text",
       text: t("state.heartbeat.quiet", { minutes }),
-      dedupeKey: `heartbeat:${state.threadId}:${state.turn}:${state.seq}`,
+      dedupeKey: `heartbeat:${state.dedupeToken}:${state.turn}:${state.seq}`,
     });
     deliverIfPush(binding.channel);
     markMilestonePersistDirty();
@@ -1898,7 +1973,7 @@ export function createComoteState({
   // Splits a completed turn's changed files (Task 3) and delivers them: small
   // text inlines + the rest become card buttons (fileButtons channels) or
   // auto-sent attachments. Finishes the live card with the button files. Used
-  // fire-and-forget from the turnCompleted handler so routeDesktopEvent stays sync.
+  // fire-and-forget from the turnCompleted handler so routeConnectorEvent stays sync.
   async function deliverChangedFilesAndFinish(live, binding, event, claimedSession) {
     const channel = binding.channel;
     const supportsButtons = Boolean(channelStacks.get(channel)?.plugin.meta.capabilities?.fileButtons);
@@ -1913,7 +1988,7 @@ export function createComoteState({
         conversationId: binding.conversationId,
         ...(binding.accountId ? { accountId: binding.accountId } : {}),
         ...reply,
-        dedupeKey: `changedfiles:${binding.conversationId}:${event.threadId}:${stamp}:${i}`,
+        dedupeKey: `changedfiles:${binding.conversationId}:${dedupeSessionToken(event.threadId)}:${stamp}:${i}`,
       });
     });
     const completedCard = buildLiveStatusCard(live, {

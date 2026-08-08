@@ -1,25 +1,22 @@
 import { describeIdentity } from "./authorization.js";
 import { normalizeChannelMessage } from "./channel.js";
 import { t } from "./i18n/index.js";
-import { classifyMedia, resolveWithinProject } from "./paths.js";
+import { classifyMedia, isAbsoluteFsPath, resolveWithinProject } from "./paths.js";
 import { buildFileDeliveries } from "./file-delivery.js";
 import { scanLocalProjects as defaultScanLocalProjects } from "./local-projects.js";
-import type { JsonMap, ThreadSettings } from "../types.js";
+import { parseSessionKey, sessionRefFromSession, toSessionRef } from "./session-key.js";
+import {
+  CODEX_CLI_CONNECTOR,
+  CODEX_DESKTOP_CONNECTOR,
+  registerConnector,
+} from "../connectors/contracts.js";
+import { createConnectorRegistry } from "../connectors/registry.js";
+import type { ConnectorId, JsonMap, ThreadSettings } from "../types.js";
 
-function isAbsolutePath(value) {
-  return typeof value === "string" && value.startsWith("/");
-}
-
-// Upper bound for the one-time-message identity sets (welcome card /
-// unauthorized notice). They persist across restarts, so cap them and evict
-// oldest-first rather than letting a scan of random strangers grow the state
-// file forever. Worst case an evicted identity sees the notice once more.
 const MAX_REMEMBERED_IDENTITIES = 500;
 const DEFAULT_REASONING_EFFORTS = ["low", "medium", "high"];
 const MODEL_PICKER_TYPES = new Set(["choose_model", "choose_reasoning"]);
 
-// Adds `key` to a Set that behaves as a FIFO of at most
-// MAX_REMEMBERED_IDENTITIES entries (Sets iterate in insertion order).
 function rememberIdentity(set, key) {
   set.add(key);
   while (set.size > MAX_REMEMBERED_IDENTITIES) {
@@ -33,6 +30,7 @@ export class CommandRouter {
   sessions: any;
   codexDesktop: any;
   codexCli: any;
+  connectorRegistry: any;
   outboundQueue: any;
   persist: (() => Promise<unknown> | unknown) | null;
   transcript: any;
@@ -56,6 +54,7 @@ export class CommandRouter {
     sessions,
     codexDesktop = null,
     codexCli = null,
+    connectorRegistry = null,
     outboundQueue = null,
     persist = null,
     persisted = {},
@@ -69,48 +68,50 @@ export class CommandRouter {
     this.sessions = sessions;
     this.codexDesktop = codexDesktop;
     this.codexCli = codexCli;
+    this.connectorRegistry = connectorRegistry ?? createConnectorRegistry([
+      ...(codexDesktop ? [registerConnector(CODEX_DESKTOP_CONNECTOR, codexDesktop)] : []),
+      ...(codexCli ? [registerConnector(CODEX_CLI_CONNECTOR, codexCli)] : []),
+    ]);
     this.outboundQueue = outboundQueue;
     this.persist = typeof persist === "function" ? persist : null;
     this.transcript = transcript;
     this.getPreferredConnector = typeof getPreferredConnector === "function"
       ? getPreferredConnector
       : () => "desktop";
-    // Headless/Linux fallback project source: enumerates folders under a root
-    // when there is no Codex Desktop to list workspaces. Injectable for tests.
     this.scanLocalProjects = scanLocalProjects;
-    // Routing state is restored from disk so a daemon restart does not lose
-    // the phone user's current project / session context.
     this.currentProjectByIdentity = new Map(persisted.currentProjectByIdentity ?? []);
     this.lastProjectsByIdentity = new Map();
     this.pendingByIdentity = new Map();
-    // identityKey -> { channel, conversationId, accountId }
     this.conversationByIdentity = new Map(persisted.conversationByIdentity ?? []);
-    // Codex threadId -> conversation, so the return path can find the chat.
-    this.threadBindings = new Map(persisted.threadBindings ?? []);
-    // Codex threadId -> the latest model/reasoning settings observed from the
-    // app-server or selected through /model. This is persisted so a restarted
-    // daemon can still annotate live cards before the next resume call.
-    this.threadSettingsById = new Map<string, ThreadSettings>(persisted.threadSettingsById ?? []);
-    // A thread/resume response contains the server's effective defaults. Keep
-    // those separate from settings chosen through /model so a later resume
-    // cannot replace an explicit xhigh choice with the server default (often
-    // max in newer Codex builds).
+    // Legacy keys were raw ids. Normalize the map key while preserving the exact
+    // legacy binding value shape; newly-created bindings carry connector metadata,
+    // while restored legacy values can always derive the same ref from the key.
+    this.threadBindings = new Map((persisted.threadBindings ?? []).map(([storedKey, binding]) => {
+      const ref = toSessionRef(
+        binding?.sessionKey ?? storedKey,
+        binding?.connectorId ?? binding?.connector ?? null,
+      );
+      return [ref.sessionKey, binding];
+    }));
+    this.threadSettingsById = new Map<string, ThreadSettings>(
+      (persisted.threadSettingsById ?? []).map(([storedKey, settings]) => [
+        toSessionRef(storedKey).sessionKey,
+        settings,
+      ]),
+    );
     const persistedExplicitSettings = persisted.explicitThreadSettingsById;
     this.explicitThreadSettingsById = new Set<string>(
-      persistedExplicitSettings
-        ?? [...this.threadSettingsById.keys()],
+      (persistedExplicitSettings ?? [...this.threadSettingsById.keys()]).map(
+        (storedKey) => toSessionRef(storedKey).sessionKey,
+      ),
     );
-    // Cost guard: identityKey -> array of turn-start epoch ms.
     this.maxTurnsPerHour = maxTurnsPerHour;
     this.turnTimestamps = new Map();
-    // identityKey sets for one-time first-contact messaging. Persisted (capped)
-    // so a daemon restart does not replay the welcome card / unauthorized
-    // notice to everyone who already saw it.
     this.noticedIdentities = new Set((persisted.noticedIdentities ?? []).slice(-MAX_REMEMBERED_IDENTITIES));
     this.greetedIdentities = new Set((persisted.greetedIdentities ?? []).slice(-MAX_REMEMBERED_IDENTITIES));
   }
 
-  preferredConnector() {
+  preferredConnector(): ConnectorId {
     return this.getPreferredConnector() === "cli" ? "cli" : "desktop";
   }
 
@@ -119,24 +120,29 @@ export class CommandRouter {
   }
 
   isCliAvailable() {
-    if (!this.codexCli?.runPrompt) {
-      return false;
-    }
+    if (!this.codexCli?.runPrompt) return false;
     return this.codexCli.getStatus?.().state !== "not_found";
   }
 
-  connectorForNextSession() {
-    if (this.preferredConnector() === "cli" && this.isCliAvailable()) {
-      return "cli";
-    }
-    if (this.isDesktopAvailable()) {
-      return "desktop";
-    }
+  connectorForNextSession(): ConnectorId | null {
+    if (this.preferredConnector() === "cli" && this.isCliAvailable()) return "cli";
+    if (this.isDesktopAvailable()) return "desktop";
     return this.isCliAvailable() ? "cli" : null;
   }
 
-  // Serializable routing state for persistence. Transient UI state
-  // (pending prompts, last project list) is intentionally not persisted.
+  sessionRef(sessionIdOrKey, connectorId: ConnectorId | string | null = null) {
+    return toSessionRef(sessionIdOrKey, connectorId);
+  }
+
+  sessionRefForSession(session) {
+    return sessionRefFromSession(session);
+  }
+
+  getConnector(connectorId: ConnectorId) {
+    return this.connectorRegistry?.getConnector?.(connectorId)
+      ?? (connectorId === "desktop" ? this.codexDesktop : connectorId === "cli" ? this.codexCli : null);
+  }
+
   snapshot() {
     return {
       currentProjectByIdentity: [...this.currentProjectByIdentity],
@@ -149,12 +155,6 @@ export class CommandRouter {
     };
   }
 
-  // Throws a user-facing error when an identity exceeds its hourly turn budget,
-  // otherwise reserves one unit of quota. The reservation is tentative: callers
-  // MUST refundTurnStart() if the turn fails to actually start, so a turn that
-  // never reaches Codex (e.g. desktop disconnected) does not burn the user's
-  // hourly budget. The timestamp returned identifies this reservation so the
-  // refund removes exactly the unit that was reserved.
   enforceTurnRate(identity) {
     const key = this.identityKey(identity);
     const now = Date.now();
@@ -168,41 +168,53 @@ export class CommandRouter {
     return now;
   }
 
-  // Refunds a reservation made by enforceTurnRate when the turn failed to start.
-  // `reservation` is the timestamp enforceTurnRate returned; if omitted, the most
-  // recent reservation for the identity is dropped.
   refundTurnStart(identity, reservation = null) {
     const key = this.identityKey(identity);
     const recent = this.turnTimestamps.get(key);
-    if (!recent || recent.length === 0) {
-      return;
-    }
+    if (!recent || recent.length === 0) return;
     const index = reservation == null ? recent.length - 1 : recent.lastIndexOf(reservation);
-    if (index >= 0) {
-      recent.splice(index, 1);
-    }
+    if (index >= 0) recent.splice(index, 1);
     this.turnTimestamps.set(key, recent);
   }
 
-  bindThreadForIdentity(identity, threadId, projectPath = null) {
-    if (!threadId) {
-      return;
-    }
+  bindThreadForIdentity(identity, threadId, projectPath = null, connectorId: ConnectorId | string = "desktop") {
+    if (!threadId) return;
+    const ref = toSessionRef(threadId, connectorId);
     const conversation = this.conversationByIdentity.get(this.identityKey(identity));
     if (conversation) {
-      // Record the initiating identity's stableId so channel card buttons
-      // (Feishu cancel/pushfile) can verify the clicker owns the thread and a
-      // different group member cannot act on another user's live card.
-      this.threadBindings.set(threadId, {
+      this.threadBindings.set(ref.sessionKey, {
         ...conversation,
         projectPath: projectPath ?? null,
         ownerStableId: identity?.stableId ?? null,
+        sessionKey: ref.sessionKey,
+        connectorId: ref.connectorId,
+        rawSessionId: ref.rawSessionId,
       });
     }
   }
 
-  getThreadBinding(threadId) {
-    return this.threadBindings.get(threadId) ?? null;
+  getThreadBinding(threadId, connectorId: ConnectorId | string | null = null) {
+    if (!threadId) return null;
+    const parsed = parseSessionKey(threadId);
+    const requestedRef = parsed ?? (connectorId == null ? null : toSessionRef(threadId, connectorId));
+    const entries = [...this.threadBindings.entries()].map(([storedKey, binding]) => ({
+      binding,
+      ref: toSessionRef(
+        binding?.sessionKey ?? binding?.rawSessionId ?? storedKey,
+        binding?.connectorId ?? binding?.connector ?? null,
+      ),
+    }));
+
+    if (requestedRef) {
+      const direct = this.threadBindings.get(requestedRef.sessionKey);
+      if (direct) return direct;
+      const matches = entries.filter(({ ref }) => ref.sessionKey === requestedRef.sessionKey);
+      return matches.length === 1 ? matches[0].binding : null;
+    }
+
+    const rawSessionId = String(threadId);
+    const matches = entries.filter(({ ref }) => ref.rawSessionId === rawSessionId);
+    return matches.length === 1 ? matches[0].binding : null;
   }
 
   handleMessage(rawMessage) {
@@ -286,12 +298,13 @@ export class CommandRouter {
     if (!projectPath) return null;
     const active = this.sessions.getActiveSession(projectPath, key);
     if (!active) return null;
-    const connector = active.connector
-      ?? (String(active.id).startsWith("cli_") ? "cli" : "desktop");
-    if (connector !== "desktop") return null;
-    const submitted = reply.text === t("cmd.send.processing", { id: active.id })
-      || reply.text === t("cmd.new.sentDesktop", { id: active.id });
-    return submitted ? active.id : null;
+    const ref = this.sessionRefForSession(active);
+    if (ref.connectorId !== "desktop") return null;
+    const submitted = reply.text === t("cmd.send.processing", { id: ref.rawSessionId })
+      || reply.text === t("cmd.new.sentDesktop", { id: ref.rawSessionId });
+    // Runtime-only metadata is connector-aware; it remains non-enumerable at the
+    // reply boundary, so the public API shape is unchanged.
+    return submitted ? ref.sessionKey : null;
   }
 
   async dispatchAuthorizedMessage(message) {
@@ -435,13 +448,13 @@ export class CommandRouter {
   }
 
   async cancelThread(threadId) {
-    if (!threadId) {
-      throw new Error("threadId is required");
-    }
-    if (!this.codexDesktop?.cancelTurn) {
+    if (!threadId) throw new Error("threadId is required");
+    const ref = toSessionRef(threadId);
+    const connector = this.getConnector(ref.connectorId);
+    if (!connector?.cancelTurn || !this.connectorRegistry?.supports?.(ref.connectorId, "cancel")) {
       throw new Error(t("cmd.cancel.unavailable"));
     }
-    await this.codexDesktop.cancelTurn({ threadId });
+    await connector.cancelTurn({ threadId: ref.rawSessionId });
     return { ok: true };
   }
 
@@ -473,33 +486,32 @@ export class CommandRouter {
     }
     const projectPath = this.requireCurrentProject(identity);
     const activeSession = this.sessions.getActiveSession(projectPath, this.identityKey(identity));
-    if (!activeSession) {
-      throw new Error(t("cmd.session.needActive"));
-    }
-    if (!this.codexDesktop?.updateThreadSettings) {
+    if (!activeSession) throw new Error(t("cmd.session.needActive"));
+    const ref = this.sessionRefForSession(activeSession);
+    if (ref.connectorId !== "desktop" || !this.codexDesktop?.updateThreadSettings) {
       throw new Error(t("cmd.approve.unavailable"));
     }
 
     const enabled = normalized === "true";
-    await this.resumeDesktopThread(activeSession.id, projectPath);
+    await this.resumeDesktopThread(ref.rawSessionId, projectPath, ref.sessionKey);
     await this.codexDesktop.updateThreadSettings({
-      threadId: activeSession.id,
+      threadId: ref.rawSessionId,
       approvalsReviewer: enabled ? "auto_review" : "user",
     });
-    return t(enabled ? "cmd.automode.enabled" : "cmd.automode.disabled", { id: activeSession.id });
+    return t(enabled ? "cmd.automode.enabled" : "cmd.automode.disabled", { id: ref.rawSessionId });
   }
 
-  getThreadSettings(threadId) {
-    const settings = this.threadSettingsById.get(threadId);
+  getThreadSettings(threadId, connectorId: ConnectorId | string = "desktop") {
+    const key = toSessionRef(threadId, connectorId).sessionKey;
+    const settings = this.threadSettingsById.get(key);
     return settings ? { ...settings } : null;
   }
 
   rememberThreadSettings(threadId, ...responses) {
-    if (!threadId) {
-      return null;
-    }
+    if (!threadId) return null;
+    const sessionKey = toSessionRef(threadId).sessionKey;
     const sources = responses.flatMap((response) => [response?.thread, response]).filter(Boolean);
-    const current = this.threadSettingsById.get(threadId) ?? {};
+    const current = this.threadSettingsById.get(sessionKey) ?? {};
     const next = { ...current };
     const model = firstStringSetting(sources, ["model", "modelId", "model_id"]);
     const reasoningEffort = firstDefinedSetting(sources, [
@@ -507,10 +519,8 @@ export class CommandRouter {
       "reasoning_effort",
       "effort",
     ]);
-    const hasExplicitSettings = this.explicitThreadSettingsById.has(threadId);
-    if (!hasExplicitSettings && typeof model === "string" && model.trim()) {
-      next.model = model.trim();
-    }
+    const hasExplicitSettings = this.explicitThreadSettingsById.has(sessionKey);
+    if (!hasExplicitSettings && typeof model === "string" && model.trim()) next.model = model.trim();
     if (!hasExplicitSettings && reasoningEffort !== undefined) {
       next.reasoningEffort = typeof reasoningEffort === "string"
         ? reasoningEffort.trim() || null
@@ -519,40 +529,35 @@ export class CommandRouter {
     if (next.model === undefined && next.reasoningEffort === undefined) {
       return current.model || next.reasoningEffort !== undefined ? next : null;
     }
-    this.threadSettingsById.set(threadId, next);
+    this.threadSettingsById.set(sessionKey, next);
     return { ...next };
   }
 
   setThreadSettings(threadId: string, settings: ThreadSettings) {
-    if (!threadId) {
-      return null;
-    }
+    if (!threadId) return null;
+    const sessionKey = toSessionRef(threadId).sessionKey;
     const next: ThreadSettings = { ...settings };
-    if (typeof next.model === "string") {
-      next.model = next.model.trim();
-    }
+    if (typeof next.model === "string") next.model = next.model.trim();
     if (typeof next.reasoningEffort === "string") {
       next.reasoningEffort = next.reasoningEffort.trim() || null;
     }
-    this.threadSettingsById.set(threadId, next);
-    this.explicitThreadSettingsById.add(threadId);
+    this.threadSettingsById.set(sessionKey, next);
+    this.explicitThreadSettingsById.add(sessionKey);
     return { ...next };
   }
 
   async modelTextAsync(identity) {
-    const { projectPath, activeSession } = this.requireModelSession(identity);
-    const resumed = await this.resumeDesktopThread(activeSession.id, projectPath);
-    const current = this.rememberThreadSettings(activeSession.id, resumed, activeSession)
-      ?? this.getThreadSettings(activeSession.id)
+    const { projectPath, activeSession, ref } = this.requireModelSession(identity);
+    const resumed = await this.resumeDesktopThread(ref.rawSessionId, projectPath, ref.sessionKey);
+    const current = this.rememberThreadSettings(ref.sessionKey, resumed, activeSession)
+      ?? this.getThreadSettings(ref.sessionKey)
       ?? {};
     let models = [];
     if (this.codexDesktop?.listModels) {
       try {
         models = normalizeModelOptions(await this.codexDesktop.listModels());
       } catch (error) {
-        if (!isMethodMissingError(error)) {
-          throw error;
-        }
+        if (!isMethodMissingError(error)) throw error;
       }
     }
     if (models.length === 0 && current.model) {
@@ -563,18 +568,15 @@ export class CommandRouter {
         defaultReasoningEffort: null,
       }];
     }
-    if (models.length === 0) {
-      throw new Error(t("cmd.model.unavailable"));
-    }
-    const items = models.map((model, index) => ({
-      label: model.label,
-      index: String(index + 1),
-    }));
+    if (models.length === 0) throw new Error(t("cmd.model.unavailable"));
+    const items = models.map((model, index) => ({ label: model.label, index: String(index + 1) }));
     const key = this.identityKey(identity);
     this.pendingByIdentity.set(key, {
       type: "choose_model",
       projectPath,
-      threadId: activeSession.id,
+      sessionKey: ref.sessionKey,
+      rawSessionId: ref.rawSessionId,
+      connectorId: ref.connectorId,
       models,
       current,
     });
@@ -591,9 +593,7 @@ export class CommandRouter {
   async chooseModel(identity, selector) {
     const key = this.identityKey(identity);
     const pending = this.pendingByIdentity.get(key);
-    if (pending?.type !== "choose_model") {
-      return this.text(t("cmd.model.expired"));
-    }
+    if (pending?.type !== "choose_model") return this.text(t("cmd.model.expired"));
     const model = pending.models[Number(selector) - 1];
     if (!model || String(Number(selector)) !== String(selector)) {
       return this.text(`${t("cmd.model.notFound")}\n${t("cmd.model.replyNumber")}`);
@@ -605,14 +605,13 @@ export class CommandRouter {
           model.defaultReasoningEffort,
           ...DEFAULT_REASONING_EFFORTS,
         ]);
-    const items = efforts.map((effort, index) => ({
-      label: effort.label,
-      index: String(index + 1),
-    }));
+    const items = efforts.map((effort, index) => ({ label: effort.label, index: String(index + 1) }));
     this.pendingByIdentity.set(key, {
       type: "choose_reasoning",
       projectPath: pending.projectPath,
-      threadId: pending.threadId,
+      sessionKey: pending.sessionKey,
+      rawSessionId: pending.rawSessionId,
+      connectorId: pending.connectorId,
       model,
       reasoningEfforts: efforts,
     });
@@ -628,20 +627,18 @@ export class CommandRouter {
   async chooseReasoning(identity, selector) {
     const key = this.identityKey(identity);
     const pending = this.pendingByIdentity.get(key);
-    if (pending?.type !== "choose_reasoning") {
-      return this.text(t("cmd.model.expired"));
-    }
+    if (pending?.type !== "choose_reasoning") return this.text(t("cmd.model.expired"));
     const effort = pending.reasoningEfforts[Number(selector) - 1];
     if (!effort || String(Number(selector)) !== String(selector)) {
       return this.text(`${t("cmd.model.notFound")}\n${t("cmd.model.replyNumber")}`);
     }
-    await this.resumeDesktopThread(pending.threadId, pending.projectPath);
+    await this.resumeDesktopThread(pending.rawSessionId, pending.projectPath, pending.sessionKey);
     await this.codexDesktop.updateThreadSettings({
-      threadId: pending.threadId,
+      threadId: pending.rawSessionId,
       model: pending.model.value,
       reasoningEffort: effort.value,
     });
-    this.setThreadSettings(pending.threadId, {
+    this.setThreadSettings(pending.sessionKey, {
       model: pending.model.value,
       reasoningEffort: effort.value,
     });
@@ -656,22 +653,15 @@ export class CommandRouter {
   requireModelSession(identity) {
     const projectPath = this.requireCurrentProject(identity);
     const activeSession = this.sessions.getActiveSession(projectPath, this.identityKey(identity));
-    if (!activeSession) {
-      throw new Error(t("cmd.session.needActive"));
-    }
-    const connector = activeSession.connector
-      ?? (String(activeSession.id).startsWith("cli_") ? "cli" : "desktop");
-    if (connector !== "desktop") {
-      throw new Error(t("cmd.model.desktopOnly"));
-    }
+    if (!activeSession) throw new Error(t("cmd.session.needActive"));
+    const ref = this.sessionRefForSession(activeSession);
+    if (ref.connectorId !== "desktop") throw new Error(t("cmd.model.desktopOnly"));
     const desktopStatus = this.codexDesktop?.getStatus?.();
     if (desktopStatus && desktopStatus.state !== "connected") {
       throw new Error(t("cmd.desktop.notConnected"));
     }
-    if (!this.codexDesktop?.updateThreadSettings) {
-      throw new Error(t("cmd.model.unavailable"));
-    }
-    return { projectPath, activeSession };
+    if (!this.codexDesktop?.updateThreadSettings) throw new Error(t("cmd.model.unavailable"));
+    return { projectPath, activeSession, ref };
   }
 
   projectsText() {
@@ -736,7 +726,7 @@ export class CommandRouter {
   }
 
   openProjectFromLastList(identity, selector) {
-    if (!selector || isAbsolutePath(selector)) {
+    if (!selector || isAbsoluteFsPath(selector)) {
       return null;
     }
     const projects = this.lastProjectsByIdentity.get(this.identityKey(identity)) ?? [];
@@ -805,45 +795,58 @@ export class CommandRouter {
     return { kind: "text", text, picker: { pickKind: "session", items: entries } };
   }
 
-  async sessionsTextAsync(identity, { choose = false } = {}) {
-    const projectPath = this.requireCurrentProject(identity);
-    const key = this.identityKey(identity);
-    if (choose) {
-      this.pendingByIdentity.set(key, { type: "choose_session", projectPath });
-    }
+  async sessionPickerItems(projectPath) {
     if (this.codexDesktop?.getStatus?.().state === "connected") {
       const response = await this.codexDesktop.listThreads({ cwd: projectPath });
       const threads = response.data ?? response.threads ?? [];
-      const entries = [
-        { label: t("cmd.session.newLabel"), index: "0" },
-        ...threads.map((thread, index) => ({
+      const preferred = this.connectorForNextSession() ?? "desktop";
+      const connectorId = this.connectorRegistry?.sameSessionFamily?.("desktop", preferred)
+        ? preferred
+        : "desktop";
+      return {
+        source: "desktop",
+        items: threads.map((thread) => ({
           label: this.threadTitle(thread),
-          index: String(index + 1),
+          connectorId,
+          sourceConnectorId: "desktop",
+          rawSessionId: thread.id,
+          sessionKey: toSessionRef(thread.id, connectorId).sessionKey,
+          thread,
         })),
-      ];
-      return this.pickerFromSessions(entries);
+      };
     }
-    const sessions = this.sessions.listSessions(projectPath);
-    const entries = [
-      { label: t("cmd.session.newLabel"), index: "0" },
-      ...sessions.map((session, index) => ({
+    return {
+      source: "cache",
+      items: this.sessions.listSessions(projectPath).map((session) => ({
         label: session.title,
-        index: String(index + 1),
+        ...this.sessionRefForSession(session),
+        session,
       })),
-    ];
-    // Degraded path: the desktop connector is down, so this list is only
-    // Comote's local cache. Say so — a silent downgrade reads as "my
-    // conversations are gone" to the IM user.
-    return this.pickerFromSessions(entries, { preamble: t("cmd.session.desktopOffline") });
+    };
   }
 
-  // Asks Codex Desktop for the latest N user/assistant messages on a thread.
-  // Falls back to the local Comote transcript when the desktop call fails or
-  // returns nothing recognizable. Each returned line is already truncated.
-  async recentDesktopThreadLines(threadId, limit = 3) {
-    if (!threadId) {
-      return [];
+  async sessionsTextAsync(identity, { choose = false } = {}) {
+    const projectPath = this.requireCurrentProject(identity);
+    const key = this.identityKey(identity);
+    const pickerSource = await this.sessionPickerItems(projectPath);
+    if (choose) {
+      this.pendingByIdentity.set(key, {
+        type: "choose_session",
+        projectPath,
+        items: pickerSource.items,
+      });
     }
+    const entries = [
+      { label: t("cmd.session.newLabel"), index: "0" },
+      ...pickerSource.items.map((item, index) => ({ label: item.label, index: String(index + 1) })),
+    ];
+    return this.pickerFromSessions(entries, {
+      preamble: pickerSource.source === "cache" ? t("cmd.session.desktopOffline") : "",
+    });
+  }
+
+  async recentDesktopThreadLines(threadId, limit = 3, sessionKey = null) {
+    if (!threadId) return [];
     if (this.codexDesktop?.listRecentMessages) {
       try {
         const result = await this.codexDesktop.listRecentMessages({ threadId, limit });
@@ -851,16 +854,21 @@ export class CommandRouter {
           return result.messages.map((message) => this.formatTranscriptLine(message));
         }
       } catch {
-        // fall through to local transcript
+        // fall through to the connector-aware local transcript
       }
     }
-    if (!this.transcript) {
-      return [];
-    }
-    const page = this.transcript.listThread(threadId, { limit, offset: 0 });
-    const messages = page?.messages ?? [];
-    // listThread returns newest-first; reverse for chronological reading.
-    return messages
+    return this.recentTranscriptLines(sessionKey ?? toSessionRef(threadId, "desktop").sessionKey, limit);
+  }
+
+  recentTranscriptLines(sessionKey, limit = 3) {
+    if (!this.transcript) return [];
+    const ref = toSessionRef(sessionKey);
+    const page = this.transcript.listThread(ref.rawSessionId, {
+      limit,
+      offset: 0,
+      connector: ref.connectorId,
+    });
+    return (page?.messages ?? [])
       .slice()
       .reverse()
       .map((message) => this.formatTranscriptLine(message));
@@ -874,53 +882,32 @@ export class CommandRouter {
 
   useSession(identity, selector) {
     const projectPath = this.requireCurrentProject(identity);
-    const session = this.sessions.useSession(
-      projectPath,
-      selector,
-      this.identityKey(identity),
-      this.connectorForNextSession(),
-    );
+    const session = this.sessions.useSession(projectPath, selector, this.identityKey(identity));
     return t("cmd.use.switched", { title: session.title, id: session.id });
   }
 
   tailText(identity, countText) {
     const projectPath = this.requireCurrentProject(identity);
     const activeSession = this.sessions.getActiveSession(projectPath, this.identityKey(identity));
-    if (!activeSession) {
-      throw new Error(t("cmd.session.needActive"));
-    }
+    if (!activeSession) throw new Error(t("cmd.session.needActive"));
     const count = clampTailCount(countText);
     const messages = activeSession.messages.slice(-count);
-    if (messages.length === 0) {
-      return t("cmd.tail.empty");
-    }
+    if (messages.length === 0) return t("cmd.tail.empty");
     return messages.map((message) => `${message.role}: ${message.text}`).join("\n");
   }
 
-  // Async /tail. Desktop threads never append to the local session.messages
-  // (the return path records into the Transcript instead), so the old
-  // in-memory read was permanently empty for them (B-5). Desktop sessions go
-  // through recentDesktopThreadLines (desktop RPC with a local-transcript
-  // fallback); locally-created sessions (session_NNNN / cli_*) keep the
-  // original in-memory read.
   async tailTextAsync(identity, countText) {
     const projectPath = this.requireCurrentProject(identity);
     const activeSession = this.sessions.getActiveSession(projectPath, this.identityKey(identity));
-    if (!activeSession) {
-      throw new Error(t("cmd.session.needActive"));
-    }
+    if (!activeSession) throw new Error(t("cmd.session.needActive"));
     const count = clampTailCount(countText);
-    const isLocalSession = /^(session|cli)_/.test(String(activeSession.id));
-    if (!isLocalSession) {
-      const lines = await this.recentDesktopThreadLines(activeSession.id, count);
-      if (lines.length > 0) {
-        return lines.join("\n");
-      }
-    }
+    const ref = this.sessionRefForSession(activeSession);
+    const lines = ref.connectorId === "desktop" && !ref.rawSessionId.startsWith("session_")
+      ? await this.recentDesktopThreadLines(ref.rawSessionId, count, ref.sessionKey)
+      : this.recentTranscriptLines(ref.sessionKey, count);
+    if (lines.length > 0) return lines.join("\n");
     const messages = activeSession.messages.slice(-count);
-    if (messages.length === 0) {
-      return t("cmd.tail.empty");
-    }
+    if (messages.length === 0) return t("cmd.tail.empty");
     return messages.map((message) => `${message.role}: ${message.text}`).join("\n");
   }
 
@@ -931,34 +918,45 @@ export class CommandRouter {
       this.pendingByIdentity.set(key, { type: "await_new_session_message", projectPath });
       return t("cmd.session.promptFirstMessage");
     }
-    if (this.codexDesktop?.getStatus?.().state === "connected") {
-      const response = await this.codexDesktop.listThreads({ cwd: projectPath });
-      const threads = response.data ?? response.threads ?? [];
-      const thread = threads[Number(selector) - 1] ?? threads.find((candidate) => candidate.id === selector);
-      if (thread) {
-        this.rememberThreadSettings(thread.id, thread);
-        const connector = this.connectorForNextSession();
-        const resumed = connector === "desktop"
-          ? await this.resumeDesktopThread(thread.id, projectPath)
-          : null;
-        const activeThread = resumed?.thread ?? thread;
-        const title = this.threadTitle(activeThread, thread);
-        const threadId = activeThread.id ?? thread.id;
-        this.bindThreadForIdentity(identity, threadId, projectPath);
-        this.sessions.upsertExternalSession({
-          projectPath,
-          id: threadId,
-          title,
-          identityKey: key,
-          connector,
-        });
-        this.pendingByIdentity.delete(key);
-        const recent = await this.recentDesktopThreadLines(threadId, 3);
-        const recentBlock = recent.length > 0
-          ? `\n\n${t("cmd.use.recentHeader", { count: recent.length })}\n${recent.join("\n")}`
-          : `\n\n${t("cmd.use.noHistory")}`;
-        return `${t("cmd.use.resumed", { title })}${recentBlock}\n\n${t("cmd.use.continueHint")}`;
-      }
+    const pending = this.pendingByIdentity.get(key);
+    const pickerSource = pending?.type === "choose_session" && pending.projectPath === projectPath
+      ? { items: pending.items ?? [] }
+      : await this.sessionPickerItems(projectPath);
+    const item = pickerSource.items[Number(selector) - 1]
+      ?? pickerSource.items.find((candidate) =>
+        candidate.sessionKey === selector || candidate.rawSessionId === selector);
+    if (item?.thread) {
+      const initialRef = toSessionRef(item.rawSessionId, item.connectorId);
+      this.rememberThreadSettings(initialRef.sessionKey, item.thread);
+      const resumed = item.connectorId === "desktop"
+        ? await this.resumeDesktopThread(item.rawSessionId, projectPath, initialRef.sessionKey)
+        : null;
+      const activeThread = resumed?.thread ?? item.thread;
+      const title = this.threadTitle(activeThread, item.thread);
+      const rawSessionId = activeThread.id ?? item.rawSessionId;
+      const ref = toSessionRef(rawSessionId, item.connectorId);
+      this.bindThreadForIdentity(identity, ref.sessionKey, projectPath);
+      this.sessions.upsertExternalSession({
+        projectPath,
+        id: rawSessionId,
+        rawSessionId,
+        sessionKey: ref.sessionKey,
+        title,
+        identityKey: key,
+        connector: ref.connectorId,
+      });
+      this.pendingByIdentity.delete(key);
+      const recent = await this.recentDesktopThreadLines(rawSessionId, 3, ref.sessionKey);
+      const recentBlock = recent.length > 0
+        ? `\n\n${t("cmd.use.recentHeader", { count: recent.length })}\n${recent.join("\n")}`
+        : `\n\n${t("cmd.use.noHistory")}`;
+      return `${t("cmd.use.resumed", { title })}${recentBlock}\n\n${t("cmd.use.continueHint")}`;
+    }
+    if (item?.sessionKey) {
+      const session = this.sessions.useSession(projectPath, item.sessionKey, key);
+      this.bindThreadForIdentity(identity, item.sessionKey, projectPath);
+      this.pendingByIdentity.delete(key);
+      return t("cmd.use.switched", { title: session.title, id: session.id });
     }
     const result = this.useSession(identity, selector);
     this.pendingByIdentity.delete(key);
@@ -984,53 +982,54 @@ export class CommandRouter {
       this.pendingByIdentity.set(key, { type: "await_new_session_message", projectPath });
       return t("cmd.session.promptFirstMessage");
     }
-    // Reserve quota up front; refund it if the turn never actually starts so a
-    // failed hand-off to Codex does not count against the user's hourly budget.
     const reservation = this.enforceTurnRate(identity);
     const images = this.collectImagePaths(attachments, projectPath);
     const connector = this.connectorForNextSession();
     try {
       if (connector === "desktop") {
         const started = await this.codexDesktop.startThread({ cwd: projectPath });
-        const threadId = started.thread.id;
-        this.rememberThreadSettings(threadId, started);
-        this.bindThreadForIdentity(identity, threadId, projectPath);
-        this.transcript?.record(threadId, "user", message);
+        const ref = toSessionRef(started.thread.id, "desktop");
+        this.rememberThreadSettings(ref.sessionKey, started);
+        this.bindThreadForIdentity(identity, ref.sessionKey, projectPath);
+        this.transcript?.record(ref.sessionKey, "user", message);
         await this.codexDesktop.startTurn({
-          threadId,
+          threadId: ref.rawSessionId,
           text: message,
           cwd: projectPath,
           images,
-          ...this.getThreadSettings(threadId),
+          ...this.getThreadSettings(ref.sessionKey),
         });
         this.sessions.upsertExternalSession({
           projectPath,
-          id: threadId,
-          title: message || threadId,
+          id: ref.rawSessionId,
+          rawSessionId: ref.rawSessionId,
+          sessionKey: ref.sessionKey,
+          title: message || ref.rawSessionId,
           messages: message ? [{ role: "user", text: message }] : [],
           identityKey: key,
-          connector: "desktop",
+          connector: ref.connectorId,
         });
         this.pendingByIdentity.delete(key);
-        return t("cmd.new.sentDesktop", { id: threadId });
+        return t("cmd.new.sentDesktop", { id: ref.rawSessionId });
       }
       if (connector === "cli") {
         const result = await this.codexCli.runPrompt({ cwd: projectPath, text: message, images });
-        this.bindThreadForIdentity(identity, result.id, projectPath);
-        this.transcript?.record(result.id, "user", message);
-        if (result.output) {
-          this.transcript?.record(result.id, "assistant", result.output);
-        }
+        const ref = toSessionRef(result.id, "cli");
+        this.bindThreadForIdentity(identity, ref.sessionKey, projectPath);
+        this.transcript?.record(ref.sessionKey, "user", message);
+        if (result.output) this.transcript?.record(ref.sessionKey, "assistant", result.output);
         this.sessions.upsertExternalSession({
           projectPath,
-          id: result.id,
-          title: message || result.id,
+          id: ref.rawSessionId,
+          rawSessionId: ref.rawSessionId,
+          sessionKey: ref.sessionKey,
+          title: message || ref.rawSessionId,
           messages: message ? [{ role: "user", text: message }] : [],
           identityKey: key,
-          connector: "cli",
+          connector: ref.connectorId,
         });
         this.pendingByIdentity.delete(key);
-        return t("cmd.new.startedCli", { name: message || result.id, output: result.output });
+        return t("cmd.new.startedCli", { name: message || ref.rawSessionId, output: result.output });
       }
       this.pendingByIdentity.delete(key);
       return this.newSession(identity, message);
@@ -1136,84 +1135,69 @@ export class CommandRouter {
   async sendToActiveSession(identity, text, attachments = []) {
     const projectPath = this.requireCurrentProject(identity);
     const activeSession = this.sessions.getActiveSession(projectPath, this.identityKey(identity));
-    if (!activeSession) {
-      throw new Error(t("cmd.session.needActive"));
-    }
-    const connector = activeSession.connector
-      ?? (String(activeSession.id).startsWith("cli_") ? "cli" : "desktop");
-    if (connector === "cli") {
-      // Older Comote versions stored a synthetic cli_* id, which Codex cannot
-      // resume. New CLI sessions persist the real thread id from JSONL output.
-      if (String(activeSession.id).startsWith("cli_")) {
-        throw new Error(t("cmd.session.cliNoResume"));
-      }
-      if (!this.isCliAvailable()) {
-        throw new Error(t("cmd.cli.notAvailable"));
-      }
+    if (!activeSession) throw new Error(t("cmd.session.needActive"));
+    const ref = this.sessionRefForSession(activeSession);
+    if (ref.connectorId === "cli") {
+      if (ref.rawSessionId.startsWith("cli_")) throw new Error(t("cmd.session.cliNoResume"));
+      if (!this.isCliAvailable()) throw new Error(t("cmd.cli.notAvailable"));
       const reservation = this.enforceTurnRate(identity);
       const images = this.collectImagePaths(attachments, projectPath);
       try {
-        this.bindThreadForIdentity(identity, activeSession.id, projectPath);
+        this.bindThreadForIdentity(identity, ref.sessionKey, projectPath);
         const result = await this.codexCli.runPrompt({
           cwd: projectPath,
           text,
           images,
-          resumeId: activeSession.id,
+          resumeId: ref.rawSessionId,
         });
-        this.transcript?.record(activeSession.id, "user", text);
-        if (result.output) {
-          this.transcript?.record(activeSession.id, "assistant", result.output);
-        }
-        return t("cmd.send.cliCompleted", { id: activeSession.id, output: result.output });
+        this.transcript?.record(ref.sessionKey, "user", text);
+        if (result.output) this.transcript?.record(ref.sessionKey, "assistant", result.output);
+        return t("cmd.send.cliCompleted", { id: ref.rawSessionId, output: result.output });
       } catch (error) {
         this.refundTurnStart(identity, reservation);
         throw error;
       }
     }
+    if (ref.connectorId !== "desktop") throw new Error(t("cmd.desktop.notConnected"));
     if (this.codexDesktop?.getStatus?.().state !== "connected") {
       throw new Error(t("cmd.desktop.notConnected"));
     }
-    // Reserve quota up front; refund it if the turn never actually starts.
     const reservation = this.enforceTurnRate(identity);
-    this.bindThreadForIdentity(identity, activeSession.id, projectPath);
+    this.bindThreadForIdentity(identity, ref.sessionKey, projectPath);
     const images = this.collectImagePaths(attachments, projectPath);
     try {
-      await this.resumeDesktopThread(activeSession.id, projectPath);
-      this.transcript?.record(activeSession.id, "user", text);
+      await this.resumeDesktopThread(ref.rawSessionId, projectPath, ref.sessionKey);
+      this.transcript?.record(ref.sessionKey, "user", text);
       try {
         await this.codexDesktop.startTurn({
-          threadId: activeSession.id,
+          threadId: ref.rawSessionId,
           text,
           cwd: projectPath,
           images,
-          ...this.getThreadSettings(activeSession.id),
+          ...this.getThreadSettings(ref.sessionKey),
         });
       } catch (error) {
-        if (!isThreadNotFoundError(error)) {
-          throw error;
-        }
-        await this.resumeDesktopThread(activeSession.id, projectPath);
+        if (!isThreadNotFoundError(error)) throw error;
+        await this.resumeDesktopThread(ref.rawSessionId, projectPath, ref.sessionKey);
         await this.codexDesktop.startTurn({
-          threadId: activeSession.id,
+          threadId: ref.rawSessionId,
           text,
           cwd: projectPath,
           images,
-          ...this.getThreadSettings(activeSession.id),
+          ...this.getThreadSettings(ref.sessionKey),
         });
       }
     } catch (error) {
       this.refundTurnStart(identity, reservation);
       throw error;
     }
-    return t("cmd.send.processing", { id: activeSession.id });
+    return t("cmd.send.processing", { id: ref.rawSessionId });
   }
 
-  async resumeDesktopThread(threadId, cwd = null) {
-    if (!this.codexDesktop?.resumeThread) {
-      return null;
-    }
+  async resumeDesktopThread(threadId, cwd = null, sessionKey = null) {
+    if (!this.codexDesktop?.resumeThread) return null;
     const result = await this.codexDesktop.resumeThread({ threadId, cwd });
-    this.rememberThreadSettings(threadId, result);
+    this.rememberThreadSettings(sessionKey ?? toSessionRef(threadId, "desktop").sessionKey, result);
     return result;
   }
 
@@ -1269,14 +1253,10 @@ export class CommandRouter {
   async cancelActiveTurn(identity) {
     const projectPath = this.requireCurrentProject(identity);
     const activeSession = this.sessions.getActiveSession(projectPath, this.identityKey(identity));
-    if (!activeSession) {
-      throw new Error(t("cmd.session.needActive"));
-    }
-    if (!this.codexDesktop?.cancelTurn) {
-      throw new Error(t("cmd.cancel.unavailable"));
-    }
-    await this.codexDesktop.cancelTurn({ threadId: activeSession.id, cwd: projectPath });
-    return t("cmd.cancel.cancelled", { id: activeSession.id });
+    if (!activeSession) throw new Error(t("cmd.session.needActive"));
+    const ref = this.sessionRefForSession(activeSession);
+    await this.cancelThread(ref.sessionKey);
+    return t("cmd.cancel.cancelled", { id: ref.rawSessionId });
   }
 
   // Pushes a project-internal file to the user's chat. The path is fenced

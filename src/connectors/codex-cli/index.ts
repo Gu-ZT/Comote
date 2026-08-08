@@ -4,6 +4,7 @@ import { existsSync } from "node:fs";
 import { isAbsolute } from "node:path";
 import { promisify } from "node:util";
 
+import { CODEX_CLI_CONNECTOR } from "../contracts.js";
 import { resolveCodexCommand } from "../codex-desktop/index.js";
 import { resolveCodexLaunch, spawnEnvFor } from "../codex-desktop/json-rpc.js";
 
@@ -38,6 +39,9 @@ function parseJsonLines(stdout) {
 }
 
 export class CodexCliConnector {
+  readonly id = CODEX_CLI_CONNECTOR.id;
+  readonly definition = CODEX_CLI_CONNECTOR;
+  readonly capabilities = CODEX_CLI_CONNECTOR.capabilities;
   // Shares the desktop connector's executable resolution: a GUI-launched app
   // has a minimal PATH, so bare "codex" misses nvm/Homebrew installs.
   private readonly execFileAsync: typeof defaultExecFileAsync;

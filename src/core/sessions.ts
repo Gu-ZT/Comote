@@ -1,4 +1,10 @@
-import type { Identity, Session } from "../types.js";
+import type { ConnectorId, Session } from "../types.js";
+import {
+  makeSessionKey,
+  parseSessionKey,
+  sessionRefFromSession,
+  toSessionRef,
+} from "./session-key.js";
 
 type SessionInput = Partial<Session> & {
   projectPath: string;
@@ -30,11 +36,18 @@ function identityProjectKey(identityKey: string, projectPath: string): string {
   return `${identityKey}\u0000${projectPath}`;
 }
 
+function projectPathFromIdentityKey(key: string): string | null {
+  const separator = key.indexOf("\u0000");
+  return separator >= 0 ? key.slice(separator + 1) : null;
+}
+
+function copySession(session: Session): Session {
+  return { ...session, messages: [...session.messages] };
+}
+
 export class SessionStore {
   // `sessions` accepts either the legacy persisted shape (a flat array of
   // session objects) or the current one ({ sessions, activeByIdentity }).
-  // Legacy snapshots restore with an empty per-identity pointer map, so each
-  // IM identity simply re-picks a session once after the upgrade.
   readonly sessionsByProject: Map<string, Session[]>;
   readonly activeByProject: Map<string, string>;
   readonly activeByIdentity: Map<string, string>;
@@ -43,32 +56,34 @@ export class SessionStore {
   constructor({ sessions = [] }: { sessions?: Session[] | SessionSnapshot } = {}) {
     const persisted: SessionSnapshot = Array.isArray(sessions) ? { sessions } : sessions ?? { sessions: [] };
     this.sessionsByProject = new Map<string, Session[]>();
-    // Global pointer: one active session per project, used by identity-less
-    // callers (desktop UI / server paths and the restore loop below).
+    // Active pointers store connector-aware session keys. Session.id remains the
+    // legacy/public raw id so existing APIs and Codex calls stay unchanged.
     this.activeByProject = new Map<string, string>();
-    // Per-identity pointer: `${identityKey}\0${projectPath}` -> sessionId.
-    // IM commands read/write this so user A's /use can never redirect user B's
-    // messages into A's session (B-6).
-    this.activeByIdentity = new Map<string, string>(persisted.activeByIdentity ?? []);
+    this.activeByIdentity = new Map<string, string>();
     this.nextId = 1;
     for (const session of persisted.sessions ?? []) {
-      this.upsertExternalSession(session);
-      // Seed nextId past any rehydrated session_NNNN id so freshly created
-      // sessions never collide with reloaded ones on the synchronous /new path.
-      const existingNumber = parseSessionIdNumber(session.id);
+      this.upsertExternalSession(session as SessionInput);
+      const existingNumber = parseSessionIdNumber(session.rawSessionId ?? session.id);
       if (existingNumber >= this.nextId) {
         this.nextId = existingNumber + 1;
       }
     }
+    // Migrate legacy raw-id pointers after every session has been normalized.
+    for (const [key, storedId] of persisted.activeByIdentity ?? []) {
+      const projectPath = projectPathFromIdentityKey(key);
+      if (!projectPath) continue;
+      const resolved = this.resolveStoredSessionKey(projectPath, storedId);
+      if (resolved) this.activeByIdentity.set(key, resolved);
+    }
   }
 
-  // Moves the active pointer. The global pointer always follows (it is the
-  // "most recent activity" view for identity-less callers); the per-identity
-  // pointer additionally records who this session belongs to.
-  setActive(projectPath: string, sessionId: string, identityKey: string | null = null): void {
-    this.activeByProject.set(projectPath, sessionId);
+  setActive(projectPath: string, sessionIdOrKey: string, identityKey: string | null = null): void {
+    const sessionKey = this.resolveStoredSessionKey(projectPath, sessionIdOrKey)
+      ?? parseSessionKey(sessionIdOrKey)?.sessionKey
+      ?? sessionIdOrKey;
+    this.activeByProject.set(projectPath, sessionKey);
     if (identityKey) {
-      this.activeByIdentity.set(identityProjectKey(identityKey, projectPath), sessionId);
+      this.activeByIdentity.set(identityProjectKey(identityKey, projectPath), sessionKey);
     }
   }
 
@@ -77,111 +92,144 @@ export class SessionStore {
     title?: string;
     firstMessage?: string;
     identityKey?: string | null;
-    connector?: string | null;
+    connector?: ConnectorId | string | null;
   }): Session {
     if (!projectPath) {
       throw new Error("projectPath is required");
     }
-    const session = {
-      id: makeId("session", this.nextId++),
+    const rawSessionId = makeId("session", this.nextId++);
+    const ref = toSessionRef(rawSessionId, connector);
+    const session: Session = {
+      id: rawSessionId,
+      rawSessionId,
+      sessionKey: ref.sessionKey,
+      connector: ref.connectorId,
       projectPath,
       title: title || firstMessage || "Untitled session",
       state: "idle",
       messages: firstMessage ? [{ role: "user", text: firstMessage }] : [],
       updatedAt: new Date().toISOString(),
-      ...(connector ? { connector } : {}),
     };
 
-    const sessions = this.sessionsByProject.get(projectPath) ?? [];
-    sessions.push(session);
-    this.sessionsByProject.set(projectPath, sessions);
-    this.setActive(projectPath, session.id, identityKey);
-    return { ...session, messages: [...session.messages] };
+    const projectSessions = this.sessionsByProject.get(projectPath) ?? [];
+    projectSessions.push(session);
+    this.sessionsByProject.set(projectPath, projectSessions);
+    this.setActive(projectPath, ref.sessionKey, identityKey);
+    return copySession(session);
   }
 
-  upsertExternalSession({
-    projectPath,
-    id,
-    title,
-    state = "idle",
-    messages = [],
-    identityKey = null,
-    connector = null,
-  }: SessionInput): Session {
-    if (!projectPath || !id) {
+  upsertExternalSession(input: SessionInput): Session {
+    const {
+      projectPath,
+      title,
+      state = "idle",
+      messages = [],
+      identityKey = null,
+    } = input;
+    const rawSessionId = input.rawSessionId ?? input.id;
+    if (!projectPath || !rawSessionId) {
       throw new Error("projectPath and id are required");
     }
-    const sessions = this.sessionsByProject.get(projectPath) ?? [];
-    const existing = sessions.find((session) => session.id === id);
+    const ref = sessionRefFromSession({
+      ...input,
+      id: rawSessionId,
+      rawSessionId,
+    });
+    const projectSessions = this.sessionsByProject.get(projectPath) ?? [];
+    const existing = projectSessions.find((session) => session.sessionKey === ref.sessionKey);
     if (existing) {
       existing.title = title ?? existing.title;
       existing.state = state ?? existing.state;
-      existing.connector = connector ?? existing.connector;
       existing.updatedAt = new Date().toISOString();
-      this.setActive(projectPath, existing.id, identityKey);
-      return { ...existing, messages: [...existing.messages] };
+      this.setActive(projectPath, existing.sessionKey, identityKey);
+      return copySession(existing);
     }
 
-    const session = {
-      id,
+    const session: Session = {
+      id: rawSessionId,
+      rawSessionId,
+      sessionKey: ref.sessionKey,
+      connector: ref.connectorId,
       projectPath,
-      title: title || id,
+      title: title || rawSessionId,
       state,
       messages: [...messages],
-      updatedAt: new Date().toISOString(),
-      external: true,
-      ...(connector ? { connector } : {}),
+      updatedAt: input.updatedAt ?? new Date().toISOString(),
+      external: input.external ?? true,
     };
-    sessions.push(session);
-    this.sessionsByProject.set(projectPath, sessions);
-    this.setActive(projectPath, session.id, identityKey);
-    return { ...session, messages: [...session.messages] };
+    projectSessions.push(session);
+    this.sessionsByProject.set(projectPath, projectSessions);
+    this.setActive(projectPath, ref.sessionKey, identityKey);
+    return copySession(session);
   }
 
   listSessions(projectPath: string): Session[] {
-    return (this.sessionsByProject.get(projectPath) ?? []).map((session) => ({
-      ...session,
-      messages: [...session.messages],
-    }));
+    return (this.sessionsByProject.get(projectPath) ?? []).map(copySession);
   }
 
-  useSession(projectPath: string, sessionIdOrNumber: string | number, identityKey: string | null = null, connector: string | null = null): Session {
-    const sessions = this.sessionsByProject.get(projectPath) ?? [];
-    const byNumber = sessions[Number(sessionIdOrNumber) - 1];
-    const session = sessions.find((candidate) => candidate.id === sessionIdOrNumber) ?? byNumber;
+  useSession(
+    projectPath: string,
+    sessionIdOrNumber: string | number,
+    identityKey: string | null = null,
+    connector: ConnectorId | string | null = null,
+  ): Session {
+    const projectSessions = this.sessionsByProject.get(projectPath) ?? [];
+    const byNumber = projectSessions[Number(sessionIdOrNumber) - 1];
+    let session = byNumber;
+    if (typeof sessionIdOrNumber === "string") {
+      const parsed = parseSessionKey(sessionIdOrNumber);
+      if (parsed) {
+        session = projectSessions.find((candidate) => candidate.sessionKey === parsed.sessionKey);
+      } else if (connector) {
+        const key = makeSessionKey(connector, sessionIdOrNumber);
+        session = projectSessions.find((candidate) => candidate.sessionKey === key) ?? byNumber;
+      } else {
+        const candidates = projectSessions.filter((candidate) => candidate.id === sessionIdOrNumber);
+        if (candidates.length > 1) {
+          throw new Error(`ambiguous session id: ${sessionIdOrNumber}`);
+        }
+        session = candidates[0] ?? byNumber;
+      }
+    }
     if (!session) {
       throw new Error(`unknown session: ${sessionIdOrNumber}`);
     }
-    if (connector) {
-      session.connector = connector;
-      session.updatedAt = new Date().toISOString();
-    }
-    this.setActive(projectPath, session.id, identityKey);
-    return { ...session, messages: [...session.messages] };
+    this.setActive(projectPath, session.sessionKey, identityKey);
+    return copySession(session);
   }
 
   getActiveSession(projectPath: string, identityKey: string | null = null): Session | null {
     // Identity-scoped reads are strict: only the identity's own pointer counts.
-    // Falling back to the global pointer here would recreate the cross-user
-    // leak (user B silently continuing user A's session) this map exists to fix.
-    const activeId = identityKey
+    const activeKey = identityKey
       ? this.activeByIdentity.get(identityProjectKey(identityKey, projectPath)) ?? null
       : this.activeByProject.get(projectPath);
-    if (!activeId) {
+    if (!activeKey) {
       return null;
     }
     const session = (this.sessionsByProject.get(projectPath) ?? []).find(
-      (candidate) => candidate.id === activeId,
+      (candidate) => candidate.sessionKey === activeKey,
     );
-    return session ? { ...session, messages: [...session.messages] } : null;
+    return session ? copySession(session) : null;
   }
 
-  snapshot() {
+  snapshot(): SessionSnapshot {
     return {
-      sessions: Array.from(this.sessionsByProject.values())
-        .flat()
-        .map((session) => ({ ...session, messages: [...session.messages] })),
+      sessions: Array.from(this.sessionsByProject.values()).flat().map(copySession),
       activeByIdentity: [...this.activeByIdentity],
     };
+  }
+
+  private resolveStoredSessionKey(projectPath: string, storedId: string): string | null {
+    const sessions = this.sessionsByProject.get(projectPath) ?? [];
+    const parsed = parseSessionKey(storedId);
+    if (parsed && sessions.some((session) => session.sessionKey === parsed.sessionKey)) {
+      return parsed.sessionKey;
+    }
+    const inferred = toSessionRef(storedId);
+    if (sessions.some((session) => session.sessionKey === inferred.sessionKey)) {
+      return inferred.sessionKey;
+    }
+    const matches = sessions.filter((session) => session.id === storedId);
+    return matches.length === 1 ? matches[0].sessionKey ?? null : null;
   }
 }

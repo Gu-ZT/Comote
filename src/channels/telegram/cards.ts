@@ -60,9 +60,17 @@ export function encodeCallback({ action, code, pickKind, index, threadId, fileIn
     case "approve_session": return `as:${code}`;
     case "reject": return `rj:${code}`;
     case "pick": return `pk:${PICK_KIND_CODE[pickKind as keyof typeof PICK_KIND_CODE] ?? "s"}:${index}`;
-    case "cancel": return `ck:${threadId}`;
-    case "pushfile": return `pf:${threadId}:${fileIndex}`;
+    case "cancel": return `ck:${encodeURIComponent(threadId ?? "")}`;
+    case "pushfile": return `pf:${encodeURIComponent(threadId ?? "")}:${fileIndex}`;
     default: throw new Error(`unknown callback action: ${action}`);
+  }
+}
+
+function decodeCallbackValue(value) {
+  try {
+    return decodeURIComponent(value);
+  } catch {
+    return null;
   }
 }
 
@@ -76,11 +84,16 @@ export function decodeCallback(data) {
   if (op === "ap") return { action: "approve", code: rest };
   if (op === "as") return { action: "approve_session", code: rest };
   if (op === "rj") return { action: "reject", code: rest };
-  if (op === "ck") return { action: "cancel", threadId: rest };
+  if (op === "ck") {
+    const threadId = decodeCallbackValue(rest);
+    return threadId == null ? null : { action: "cancel", threadId };
+  }
   if (op === "pf") {
     const sep = rest.indexOf(":");
     if (sep === -1) return null;
-    return { action: "pushfile", threadId: rest.slice(0, sep), fileIndex: Number(rest.slice(sep + 1)) };
+    const threadId = decodeCallbackValue(rest.slice(0, sep));
+    if (threadId == null) return null;
+    return { action: "pushfile", threadId, fileIndex: Number(rest.slice(sep + 1)) };
   }
   if (op === "pk") {
     const sep = rest.indexOf(":");

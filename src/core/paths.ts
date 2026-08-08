@@ -13,6 +13,10 @@ const TEXT_EXTENSIONS = new Set([
   ".rb", ".php", ".sh", ".bash", ".zsh", ".sql", ".css", ".scss", ".html", ".vue", ".svelte",
 ]);
 
+export function isAbsoluteFsPath(value: unknown): value is string {
+  return typeof value === "string" && path.isAbsolute(value);
+}
+
 export function classifyMedia(filePath) {
   const ext = path.extname(String(filePath)).toLowerCase();
   return IMAGE_EXTENSIONS.has(ext) ? "image" : "file";

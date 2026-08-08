@@ -8,6 +8,8 @@ declare global {
 }
 
 export type ChannelId = string;
+export type BuiltInConnectorId = "desktop" | "cli" | "kimi";
+export type ConnectorId = BuiltInConnectorId | (string & {});
 export type ConversationType = "direct" | "group" | string;
 export type MediaKind = "image" | "file" | string;
 
@@ -92,14 +94,18 @@ export interface TranscriptMessage {
 }
 
 export interface Session {
+  /** Legacy/public raw id. Connector calls must continue receiving this value. */
   id: string;
+  /** Connector-aware internal identity used by stores, bindings, transcripts and events. */
+  sessionKey?: string;
+  rawSessionId?: string;
   projectPath: string;
   title: string;
   state: string;
   messages: Array<{ role: string; text: string }>;
   updatedAt: string;
   external?: boolean;
-  connector?: string | null;
+  connector?: ConnectorId | null;
 }
 
 export interface EventEntry {

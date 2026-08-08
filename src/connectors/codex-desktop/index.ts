@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { basename, dirname, join, win32 as winPath } from "node:path";
 
 import { JsonRpcClient, StdioTransport } from "./json-rpc.js";
+import { CODEX_DESKTOP_CONNECTOR } from "../contracts.js";
 import type { JsonMap, StartTurnOptions, ThreadSettings } from "../../types.js";
 
 const COMOTE_VERSION = JSON.parse(
@@ -11,6 +12,9 @@ const COMOTE_VERSION = JSON.parse(
 ).version;
 
 export class CodexDesktopConnector {
+  readonly id = CODEX_DESKTOP_CONNECTOR.id;
+  readonly definition = CODEX_DESKTOP_CONNECTOR;
+  readonly capabilities = CODEX_DESKTOP_CONNECTOR.capabilities;
   transport: any;
   command: string;
   codexStatePath: string;

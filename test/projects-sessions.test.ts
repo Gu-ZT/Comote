@@ -59,6 +59,9 @@ test("project store can open a path by number or absolute path", () => {
 
   assert.equal(store.resolveProject("1").path, "/home/test/projects/comote");
   assert.equal(store.resolveProject("/tmp/demo").path, "/tmp/demo");
+  assert.equal(store.resolveProject("C:\\work\\demo").path, "C:\\work\\demo");
+  assert.equal(store.resolveProject("C:/work/demo").path, "C:/work/demo");
+  assert.equal(store.resolveProject("\\\\server\\share\\demo").path, "\\\\server\\share\\demo");
 });
 
 test("project store starts empty before first refresh", () => {

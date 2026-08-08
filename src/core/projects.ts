@@ -1,11 +1,18 @@
+import { basename, isAbsolute, parse } from "node:path";
+
 import type { Project } from "../types.js";
 
-function normalizePath(path: string): string {
-  return path.replace(/\/+$/, "") || "/";
+function normalizePath(value: string): string {
+  const root = parse(value).root;
+  const trimmed = value.replace(/[\\/]+$/, "");
+  if (!trimmed || (/^[a-zA-Z]:$/.test(trimmed) && root)) {
+    return root || value;
+  }
+  return trimmed;
 }
 
-function isAbsolutePath(value: unknown): value is string {
-  return typeof value === "string" && value.startsWith("/");
+function projectName(value: string): string {
+  return basename(value) || value;
 }
 
 export class ProjectStore {
@@ -40,7 +47,7 @@ export class ProjectStore {
       }
       next.push({
         id,
-        name: project.name ?? path.split("/").filter(Boolean).at(-1) ?? path,
+        name: project.name ?? projectName(path),
         path,
         source: project.source ?? "codex-desktop",
         status: project.status ?? "available",
@@ -54,11 +61,11 @@ export class ProjectStore {
   }
 
   resolveProject(selector: string): Project {
-    if (isAbsolutePath(selector)) {
+    if (isAbsolute(selector)) {
       const path = normalizePath(selector);
       return {
         id: "path",
-        name: path.split("/").filter(Boolean).at(-1) ?? path,
+        name: projectName(path),
         path,
         source: "direct",
         status: "available",
